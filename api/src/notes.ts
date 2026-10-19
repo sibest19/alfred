@@ -30,7 +30,7 @@ function topic(v: unknown): string | null {
 }
 
 const noteColumns = sql`
-  id::int AS id, kind, topic, title, content, tags, source,
+  id::int AS id, kind, topic, title, content, tags, source, unmerged_from::int AS kept_apart_from,
   to_char(created_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS created, to_char(updated_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS updated`;
 const archivedColumns = sql`, deleted_at IS NOT NULL AS archived, merged_into::int AS merged_into`;
 
@@ -97,11 +97,11 @@ export async function deleteNote(id: string) {
   return { deleted: note };
 }
 
-/** Brings back a deleted or merged note. */
+/** Brings back a deleted or merged note; one taken out of a merge keeps the id of that note in kept_apart_from. */
 export async function restoreNote(id: string) {
   try {
     const [note] = await sql`
-      UPDATE notes SET deleted_at = NULL, merged_into = NULL, updated_at = now()
+      UPDATE notes SET deleted_at = NULL, unmerged_from = coalesce(merged_into, unmerged_from), merged_into = NULL, updated_at = now()
       WHERE id = ${id}::bigint AND deleted_at IS NOT NULL RETURNING ${noteColumns}`;
     if (!note) throw new HttpError(404, `no deleted or merged note ${id}`);
     return { restored: note };

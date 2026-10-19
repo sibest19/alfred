@@ -20,7 +20,7 @@ ALTER ROLE assistant_api SET statement_timeout = '15s';
 | `POST /notes` | JSON `title`, `content`, `kind` (`note`, `fact`, `preference`, `idea`, `link`, `todo`), `tags` (array or comma-separated), `topic`, `source` (`user` \| `assistant`) |
 | `PATCH /notes/<id>` | the fields to change; empty ones are kept, tags are replaced |
 | `DELETE /notes/<id>` | soft delete (`deleted_at`) |
-| `POST /notes/<id>/restore` | brings back a deleted or merged note |
+| `POST /notes/<id>/restore` | brings back a deleted or merged note; one taken out of a merge shows that note as `kept_apart_from` |
 | `POST /notes/merge` | JSON `ids` and either `into` (an existing note, updated with the fields given) or the fields of a new note; the `ids` are archived with `merged_into` |
 | `GET /notes/topics` | the topic index: each topic with its note count and the start of its summary, and `text`, the same as lines for a prompt |
 | `PUT /notes/summaries` | JSON `topic`, `content` (`title`, `tags`): creates or replaces the topic's summary note |
