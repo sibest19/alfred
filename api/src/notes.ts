@@ -120,8 +120,10 @@ export async function mergeNotes(body: Record<string, unknown>) {
     .map((v) => Number.parseInt(String(v), 10))
     .filter(Number.isInteger);
   const into = body.into === undefined || text(body.into) === '' ? null : Number.parseInt(text(body.into), 10);
+  if (into !== null && !Number.isInteger(into)) throw new HttpError(400, 'into must be a note id');
+  // agents often list the note they merge into among the ids as well
+  if (into !== null) ids.splice(0, ids.length, ...ids.filter((i) => i !== into));
   if (ids.length === 0 || (into === null && ids.length < 2)) throw new HttpError(400, 'ids: at least two notes, or one plus into');
-  if (into !== null && (!Number.isInteger(into) || ids.includes(into))) throw new HttpError(400, 'into must be another note id');
   return sql.begin(async (t) => {
     const tx = t as unknown as typeof sql; // same query API; the cast lets createNote/updateNote run inside it
     const found = await tx`
