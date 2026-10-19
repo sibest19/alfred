@@ -74,6 +74,14 @@ def load() -> None:
 threading.Thread(target=load, daemon=True).start()
 
 
+def cpu_model():
+    """CPU copy of the model, loaded on first need (a few seconds)."""
+    if state.get("cpu") is None:
+        state["cpu"] = onnx_asr.load_model(MODEL_TYPE, model_files(), quantization=MODEL_QUANTIZATION,
+                                           providers=["CPUExecutionProvider"])
+    return state["cpu"]
+
+
 def decode(audio: bytes) -> np.ndarray:
     """Any input format to 16 kHz mono float32 via ffmpeg."""
     try:
@@ -96,7 +104,15 @@ def transcribe(audio: bytes) -> dict:
     wave = decode(audio)
     started = time.monotonic()
     with lock:
-        text = model.recognize(wave) if len(wave) else ""
+        try:
+            text = model.recognize(wave) if len(wave) else ""
+        except Exception:
+            if DEVICE == "CPU":
+                raise
+            # OpenVINO's GPU plugin occasionally returns a wrongly shaped encoder output for some input
+            # lengths (onnx-asr then asserts): redo that clip on the CPU.
+            log.warning("GPU inference failed for %.1fs of audio, retrying on the CPU", len(wave) / 16000, exc_info=True)
+            text = cpu_model().recognize(wave)
     elapsed = time.monotonic() - started
     seconds = len(wave) / 16000
     log.info("transcribed %.1fs of audio in %.2fs", seconds, elapsed)
