@@ -28,7 +28,8 @@ The link survives restarts (the credentials are in the `wa_auth` table). If the 
 | `WA_PAIRING_PHONE` | | Pair with a code instead of the QR |
 | `WA_BROWSER` | `ubuntu:Desktop` | Linked-device identity `<os>:<browser>`. `Desktop` asks for the full history; if the phone refuses to link, try `macOS:Chrome` (less history) |
 | `TRANSCRIBER_URL` | | Speech-to-text service (see below): downloaded audio is transcribed into `messages.body` and `media.transcript` |
-| `HTTP_PORT` | `8080` | `/health` and `/metrics` |
+| `HTTP_PORT` | `8080` | `/health` and `/metrics` (the API: its own port) |
+| `API_TOKEN`, `TZ` | | API only (see below) |
 | `LOG_LEVEL` / `BAILEYS_LOG_LEVEL` | `info` / `warn` | |
 
 ## Endpoints
@@ -38,6 +39,33 @@ The link survives restarts (the credentials are in the `wa_auth` table). If the 
 
 Alert on `wa_connected == 0` and on `wa_decrypt_failures_total` rising: a session whose Signal keys broke stays connected but can't decrypt anything.
 
+## API
+
+`node dist/api.js` (same image, its own container) serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials. It reads the archive and writes only notes; a restart never touches the WhatsApp session. Every request except `/health` needs `Authorization: Bearer <API_TOKEN>`. Dates without an offset are read and shown in `TZ`.
+
+Give it its own login with the `api_access` role (created by the migrations: read on the archive, write on notes, nothing on `wa_auth`):
+
+```sql
+CREATE ROLE assistant_api LOGIN PASSWORD '…' IN ROLE api_access;
+ALTER ROLE assistant_api SET statement_timeout = '15s';
+```
+
+| Endpoint | |
+|---|---|
+| `GET /messages` | `q` (words, prefix match; `match=any` for OR), `chat` and `sender` (name or JID; `sender=me`), `kind` (`text`, `image`, `video`, `audio`, `document`, `sticker`, `other`), `from`/`to` (`2026-10-01` or `2026-10-01 18:30`; a bare `to` date includes that day), `order` (`desc`), `limit` (30, max 100) |
+| `GET /messages/<id>/context` | the conversation around a message: `before`, `after` (10 each, max 50) |
+| `GET /stats` | message counts with the `/messages` filters, `group_by` `chat` \| `sender` \| `day` \| `month` \| `kind` |
+| `GET /chats` | chats by name (`q`), most recent first |
+| `GET /contacts` | contacts by name or number (`q`), with their phone number |
+| `GET /notes` | `q` (words, a name or a tag), `tag`, `kind`, `limit`; no `q` = latest |
+| `POST /notes` | JSON `title`, `content`, `kind` (`note`, `fact`, `preference`, `idea`, `link`, `todo`), `tags` (array or comma-separated), `source` (`user` \| `assistant`) |
+| `PATCH /notes/<id>` | the fields to change; empty ones are kept, tags are replaced |
+| `DELETE /notes/<id>` | soft delete (`deleted_at`) |
+| `POST /transcribe` | audio body, passed to `TRANSCRIBER_URL` |
+| `GET /health` | `200` while the database answers |
+
+Stubs (group events) and undecryptable messages are left out of the message endpoints.
+
 ## Database
 
 See [`migrations/001_init.sql`](migrations/001_init.sql). The main tables:
@@ -46,6 +74,7 @@ See [`migrations/001_init.sql`](migrations/001_init.sql). The main tables:
 - `message_revisions`: every edit and deletion (`deleted_at` on the message; the body is kept).
 - `reactions`, `media` (download status, `path` relative to `MEDIA_DIR`, `sha256`), `chats`, `contacts`, `group_participants`, `lid_map`.
 - `messages_view`: messages with readable `chat_name` and `sender_name`.
+- `notes`: what an assistant was asked to remember or chose to (see API).
 
 WhatsApp identifies people either by phone (`…@s.whatsapp.net`) or by a privacy id (`…@lid`). `chat_jid` and `sender_jid` use the phone form whenever the mapping is known; `lid_map` keeps every mapping seen.
 

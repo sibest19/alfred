@@ -28,4 +28,7 @@ export const config = {
   mediaMaxAttempts: int('MEDIA_MAX_ATTEMPTS', 8),
   // Speech-to-text service for downloaded audio (POST <url>/transcribe); empty disables it.
   transcriberUrl: (process.env.TRANSCRIBER_URL ?? '').replace(/\/+$/, ''),
+  // API (dist/api.js): the bearer token every request but /health must carry, and the zone dates are read and shown in.
+  apiToken: process.env.API_TOKEN ?? '',
+  timezone: process.env.TZ || 'UTC',
 };
