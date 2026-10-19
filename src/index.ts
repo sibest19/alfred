@@ -17,6 +17,13 @@ import { MediaWorker } from './media.js';
 import { metrics, startHttp, status } from './metrics.js';
 
 const log = pino({ level: config.logLevel });
+
+function browser() {
+  const [os, name] = config.browser;
+  const make = (Browsers as Record<string, (b: string) => [string, string, string]>)[os];
+  if (!make || !name) throw new Error(`WA_BROWSER must look like "ubuntu:Desktop", got "${config.browser.join(':')}"`);
+  return make(name);
+}
 const baileysLog = pino({ level: config.baileysLogLevel }).child({ module: 'baileys' });
 
 /** Minimal in-memory CacheStore for Baileys' retry counters. */
@@ -69,7 +76,7 @@ async function main() {
       logger: baileysLog,
       // A desktop identity is what makes the phone send the full history on first link.
       // macOS/Windows 'Desktop' are refused at registration (428) as of 7.0.0-rc14; Ubuntu is accepted.
-      browser: Browsers.ubuntu('Desktop'),
+      browser: browser(),
       syncFullHistory: true,
       markOnlineOnConnect: false,
       shouldIgnoreJid: (jid) => ignoredJid(jid),
@@ -78,6 +85,7 @@ async function main() {
       msgRetryCounterCache: retryCache,
     });
     sock = s;
+    pairingRequested = false;
 
     // ev.process delivers buffered events in order; awaiting the writes is the backpressure.
     s.ev.process(async (events) => {
@@ -89,7 +97,7 @@ async function main() {
               if (!pairingRequested) {
                 pairingRequested = true;
                 const code = await s.requestPairingCode(config.pairingPhone);
-                log.warn({ code }, 'pairing code: WhatsApp → Linked devices → Link with phone number');
+                log.warn({ code, browser: config.browser.join(':') }, 'pairing code (valid for this connection only): WhatsApp → Linked devices → Link a device → Link with phone number instead');
               }
             } else {
               qrcode.generate(qr, { small: true }, (art) => console.log(`\n${art}`));

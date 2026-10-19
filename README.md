@@ -26,6 +26,7 @@ The link survives restarts (the credentials are in the `wa_auth` table). If the 
 | `MEDIA_CONCURRENCY` | `2` | Parallel downloads |
 | `MEDIA_MAX_ATTEMPTS` | `8` | Retries (exponential backoff, up to 6 h) before a download is `failed` |
 | `WA_PAIRING_PHONE` | | Pair with a code instead of the QR |
+| `WA_BROWSER` | `ubuntu:Desktop` | Linked-device identity `<os>:<browser>`. `Desktop` asks for the full history; if the phone refuses to link, try `macOS:Chrome` (less history) |
 | `HTTP_PORT` | `8080` | `/health` and `/metrics` |
 | `LOG_LEVEL` / `BAILEYS_LOG_LEVEL` | `info` / `warn` | |
 
