@@ -52,7 +52,7 @@ export function timeBound(value: string | undefined, name: string, end: boolean)
 
 /** Words to a prefix tsquery ("cena sabato" → cena:* & sabato:*), or undefined when there are none. */
 export function tsQuery(text: string | undefined, any: boolean): string | undefined {
-  let words = text?.toLowerCase().match(/[\p{L}\p{N}]+/gu);
+  let words: string[] | undefined = text?.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? undefined;
   // with any word enough, short ones ("da", "il") as prefixes match almost everything
   if (any && words?.some((w) => w.length >= 3)) words = words.filter((w) => w.length >= 3);
   return words?.length ? words.map((w) => `${w}:*`).join(any ? ' | ' : ' & ') : undefined;
