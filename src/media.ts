@@ -11,7 +11,7 @@ import { downloadMediaMessage, type WAMessage, type WASocket } from 'baileys';
 import type { Logger } from 'pino';
 import { config } from './config.js';
 import type { Sql } from './db.js';
-import { fromJson } from './ingest.js';
+import { fromJson, toJson } from './ingest.js';
 import { metrics } from './metrics.js';
 
 const EXT: Record<string, string> = {
@@ -34,6 +34,8 @@ function extension(mimetype: string | null, fileName: string | null): string {
   const base = (mimetype ?? '').split(';')[0].trim();
   return EXT[base] ?? 'bin';
 }
+
+const statusOf = (err: any): number | undefined => err?.output?.statusCode ?? err?.status ?? err?.response?.status;
 
 type Row = {
   message_id: string;
@@ -87,13 +89,20 @@ export class MediaWorker {
     const abs = join(config.mediaDir, rel);
     const tmp = `${abs}.part`;
     try {
-      const msg = fromJson<WAMessage>(row.raw);
-      const stream = await downloadMediaMessage(
-        msg,
-        'stream',
-        {},
-        { logger: this.log as any, reuploadRequest: (m) => sock.updateMediaMessage(m) },
-      );
+      let msg = fromJson<WAMessage>(row.raw);
+      const fetchStream = (m: WAMessage) =>
+        downloadMediaMessage(m, 'stream', {}, { logger: this.log as any, reuploadRequest: (x) => sock.updateMediaMessage(x) });
+      let stream;
+      try {
+        stream = await fetchStream(msg);
+      } catch (err: any) {
+        // Expired signed URLs (history sync) answer 403, which Baileys doesn't re-request by itself:
+        // ask the phone to upload the file again, keep the new URL, and retry once.
+        if (statusOf(err) !== 403) throw err;
+        msg = await sock.updateMediaMessage(msg);
+        await this.sql`UPDATE messages SET raw = ${this.sql.json(toJson(msg) as any)} WHERE id = ${row.message_id}`;
+        stream = await fetchStream(msg);
+      }
       await mkdir(dirname(abs), { recursive: true });
       const hash = createHash('sha256');
       let size = 0;
@@ -113,9 +122,10 @@ export class MediaWorker {
       metrics.mediaDownloads.inc({ result: 'done' });
     } catch (err: any) {
       await rm(tmp, { force: true });
-      const code = err?.output?.statusCode ?? err?.status ?? err?.response?.status;
-      const text = String(err?.message ?? err).slice(0, 500);
-      const gone = code === 404 || code === 410 || /\b(404|410)\b|gone|not found/i.test(text);
+      const code = statusOf(err);
+      const text = `${code ? `HTTP ${code}: ` : ''}${String(err?.message ?? err)}`.slice(0, 500);
+      // 404/410 after Baileys' reupload, or a refused reupload request: the phone no longer has the file
+      const gone = code === 404 || code === 410 || code === 403 || /media not found|reupload failed|\bgone\b/i.test(text);
       const attempts = row.attempts + 1;
       const status = gone ? 'expired' : attempts >= config.mediaMaxAttempts ? 'failed' : 'pending';
       const delayMin = Math.min(2 ** attempts, 360);
