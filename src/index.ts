@@ -14,6 +14,7 @@ import { config } from './config.js';
 import { migrate, sql } from './db.js';
 import { Ingest, ignoredJid } from './ingest.js';
 import { MediaWorker } from './media.js';
+import { Transcriber } from './transcribe.js';
 import { metrics, startHttp, status } from './metrics.js';
 
 const log = pino({ level: config.logLevel });
@@ -59,6 +60,8 @@ async function main() {
   const retryCache = new MapCache();
   const media = new MediaWorker(sql, log.child({ module: 'media' }), () => (connected ? sock : undefined));
   setInterval(() => void media.tick(), 15_000).unref();
+  const transcriber = new Transcriber(sql, log.child({ module: 'transcribe' }));
+  setInterval(() => void transcriber.tick(), 30_000).unref();
 
   const setConnection = (state: string) => {
     status.connection = state;

@@ -39,6 +39,12 @@ export const metrics = {
     help: 'History sync chunks processed',
     registers: [registry],
   }),
+  transcriptions: new Counter({
+    name: 'wa_transcriptions_total',
+    help: 'Audio transcription attempts, by result',
+    labelNames: ['result'],
+    registers: [registry],
+  }),
   mediaDownloads: new Counter({
     name: 'wa_media_downloads_total',
     help: 'Media download attempts, by result',

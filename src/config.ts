@@ -26,4 +26,6 @@ export const config = {
   // Media in history sync older than this is recorded but not downloaded (0 = download none).
   mediaHistoryDays: int('MEDIA_HISTORY_DAYS', 90),
   mediaMaxAttempts: int('MEDIA_MAX_ATTEMPTS', 8),
+  // Speech-to-text service for downloaded audio (POST <url>/transcribe); empty disables it.
+  transcriberUrl: (process.env.TRANSCRIBER_URL ?? '').replace(/\/+$/, ''),
 };
