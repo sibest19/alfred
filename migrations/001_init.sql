@@ -127,3 +127,15 @@ LEFT JOIN chats c ON c.jid = m.chat_jid
 LEFT JOIN contacts cc ON cc.jid = m.chat_jid
 LEFT JOIN contacts sc ON sc.jid = m.sender_jid
 LEFT JOIN media md ON md.message_id = m.id;
+
+-- Read-only access for consumers (n8n, an agent): grant this role to their login.
+-- wa_auth holds the linked device's keys and stays private to the ingester.
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'archive_reader') THEN
+        CREATE ROLE archive_reader NOLOGIN;
+    END IF;
+END $$;
+GRANT USAGE ON SCHEMA public TO archive_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO archive_reader;
+REVOKE ALL ON wa_auth FROM archive_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO archive_reader;
