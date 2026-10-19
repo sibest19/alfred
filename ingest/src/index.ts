@@ -11,7 +11,7 @@ import { pino } from 'pino';
 import qrcode from 'qrcode-terminal';
 import { usePostgresAuthState } from './auth-state.js';
 import { config } from './config.js';
-import { migrate, sql } from './db.js';
+import { migrate, sql } from '@alfred/db';
 import { Ingest, ignoredJid } from './ingest.js';
 import { MediaWorker } from './media.js';
 import { Transcriber } from './transcribe.js';

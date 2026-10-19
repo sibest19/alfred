@@ -1,7 +1,7 @@
+// Shared by the services: the Postgres client (configured by the standard PG* variables) and the migrations.
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import postgres from 'postgres';
-import type { Logger } from 'pino';
 
 export const sql = postgres({
   max: 5,
@@ -12,6 +12,8 @@ export const sql = postgres({
 });
 
 export type Sql = typeof sql;
+
+type Logger = { info(obj: object, msg: string): void };
 
 const MIGRATIONS_DIR = new URL('../migrations/', import.meta.url).pathname;
 

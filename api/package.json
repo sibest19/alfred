@@ -1,0 +1,17 @@
+{
+  "name": "@alfred/api",
+  "version": "0.4.0",
+  "private": true,
+  "description": "HTTP API over the archive and the notes",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@alfred/db": "0.4.0",
+    "pino": "10.4.0",
+    "postgres": "3.4.9"
+  }
+}

@@ -10,7 +10,7 @@ import {
   type SignalDataTypeMap,
   type SignalKeyStore,
 } from 'baileys';
-import type { Sql } from './db.js';
+import type { Sql } from '@alfred/db';
 
 const encode = (value: unknown): string => JSON.stringify(value, BufferJSON.replacer);
 const decode = (text: string): any => JSON.parse(text, BufferJSON.reviver);

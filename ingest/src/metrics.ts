@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { Counter, Gauge, Registry, collectDefaultMetrics } from '@prometheus-io/client';
-import type { Sql } from './db.js';
+import type { Sql } from '@alfred/db';
 
 export const registry = new Registry();
 collectDefaultMetrics({ register: registry });

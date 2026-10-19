@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Logger } from 'pino';
 import { config } from './config.js';
-import type { Sql } from './db.js';
+import type { Sql } from '@alfred/db';
 import { metrics } from './metrics.js';
 
 type Row = { message_id: string; msg_id: string; path: string; mimetype: string | null; transcribe_attempts: number };

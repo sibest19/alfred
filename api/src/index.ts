@@ -1,12 +1,12 @@
 // HTTP API over the archive and the notes, for an agent (n8n, …) that shouldn't hold database credentials.
-// Its own process (node dist/api.js) and container, so a restart never touches the WhatsApp session.
+// Its own service and container, so a restart never touches the WhatsApp session.
 // Read-only on the archive; writes only notes. Every request but /health needs "Authorization: Bearer <API_TOKEN>".
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { PendingQuery, Row } from 'postgres';
 import { pino } from 'pino';
 import { config } from './config.js';
-import { sql } from './db.js';
+import { sql } from '@alfred/db';
 
 const log = pino({ level: config.logLevel });
 const tz = config.timezone;

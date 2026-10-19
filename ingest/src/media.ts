@@ -10,7 +10,7 @@ import { pipeline } from 'node:stream/promises';
 import { downloadMediaMessage, type WAMessage, type WASocket } from 'baileys';
 import type { Logger } from 'pino';
 import { config } from './config.js';
-import type { Sql } from './db.js';
+import type { Sql } from '@alfred/db';
 import { fromJson, toJson } from './ingest.js';
 import { metrics } from './metrics.js';
 

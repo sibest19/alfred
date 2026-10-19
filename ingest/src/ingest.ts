@@ -25,7 +25,7 @@ import {
 } from 'baileys';
 import type { Logger } from 'pino';
 import { config } from './config.js';
-import type { Sql } from './db.js';
+import type { Sql } from '@alfred/db';
 import { metrics } from './metrics.js';
 
 export type Source = 'live' | 'append' | 'history';
