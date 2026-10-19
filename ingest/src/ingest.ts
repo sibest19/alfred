@@ -500,6 +500,9 @@ export class Ingest {
       ).values(),
     ];
     await this.sql.begin(async (tx) => {
+      // Baileys doesn't serialize event batches: the group fetch at connect and a groups.update can replace
+      // the same group at once, and the second insert would hit the rows the first one just wrote.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'group_participants:' + group}))`;
       await tx`DELETE FROM group_participants WHERE group_jid = ${group}`;
       if (rows.length > 0) await tx`INSERT INTO group_participants ${tx(rows, 'group_jid', 'participant_jid', 'role')}`;
     });
