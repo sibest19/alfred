@@ -10,5 +10,10 @@ export const config = {
   // Dates without an offset are read, and all dates shown, in this zone.
   timezone: process.env.TZ || 'UTC',
   // Speech-to-text service behind POST /transcribe; empty disables it.
+  // First level of a note's topic path; the order is the one shown to the assistant.
+  noteTopicRoots: (process.env.NOTE_TOPIC_ROOTS || 'people,places,preferences,home,work,health,projects,ideas,reading,travel,other')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
   transcriberUrl: (process.env.TRANSCRIBER_URL ?? '').replace(/\/+$/, ''),
 };

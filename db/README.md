@@ -9,7 +9,7 @@ Schema in [`migrations/`](migrations). The main tables:
 - `message_revisions`: every edit and deletion (`deleted_at` on the message; the body is kept).
 - `reactions`, `media` (download status, `path` relative to `MEDIA_DIR`, `sha256`), `chats`, `contacts`, `group_participants`, `lid_map`.
 - `messages_view`: messages with readable `chat_name` and `sender_name`.
-- `notes`: what an assistant was asked to remember or chose to (see [`../api`](../api)).
+- `notes`: what an assistant was asked to remember or chose to, under a `topic` path, with one `summary` note per topic and `merged_into` for merged notes (see [`../api`](../api)); `consolidations` records each consolidation run.
 
 WhatsApp identifies people either by phone (`…@s.whatsapp.net`) or by a privacy id (`…@lid`). `chat_jid` and `sender_jid` use the phone form whenever the mapping is known; `lid_map` keeps every mapping seen.
 
