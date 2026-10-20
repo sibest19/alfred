@@ -46,7 +46,8 @@ export function timeBound(value: string | undefined, name: string, end: boolean)
   if (value === undefined) return undefined;
   if (!DATE.test(value)) throw new HttpError(400, `${name} must look like 2026-10-01 or 2026-10-01 18:30`);
   const local = !/(Z|[+-]\d{2}:?\d{2})$/.test(value);
-  const t = local ? sql`(${value}::timestamp AT TIME ZONE ${tz})` : sql`${value}::timestamptz`;
+  // through text: a parameter typed timestamp goes through a JS Date, which reads it in the process's zone
+  const t = local ? sql`(${value}::text::timestamp AT TIME ZONE ${tz})` : sql`${value}::text::timestamptz`;
   return end && value.length === 10 ? sql`${t} + interval '1 day'` : t;
 }
 
