@@ -10,6 +10,7 @@ Schema in [`migrations/`](migrations). The main tables:
 - `reactions`, `media` (download status, `path` relative to `MEDIA_DIR`, `sha256`), `chats`, `contacts`, `group_participants`, `lid_map`.
 - `messages_view`: messages with readable `chat_name` and `sender_name`.
 - `notes`: what an assistant was asked to remember or chose to, under a `topic` path, with one `summary` note per topic and `merged_into` for merged notes (see [`../api`](../api)); `consolidations` records each consolidation run.
+- `reminders`: an assistant's alarms (`pending` → `fired` → `done`, or `cancelled`). A repeating reminder is one row per occurrence, linked by `series_id`; the repeat (`repeat_unit`, `repeat_every`, `repeat_days`, `repeat_until`, `repeat_anchor` in local wall-clock time) lives on the newest one, and `reminder_next()` computes the next occurrence in the API's time zone.
 
 WhatsApp identifies people either by phone (`…@s.whatsapp.net`) or by a privacy id (`…@lid`). `chat_jid` and `sender_jid` use the phone form whenever the mapping is known; `lid_map` keeps every mapping seen.
 
@@ -22,4 +23,4 @@ WHERE search @@ websearch_to_tsquery('simple', 'cena') AND sent_at > now() - int
 ORDER BY sent_at;
 ```
 
-Roles: `archive_reader` (SELECT on everything except `wa_auth`) for direct read-only logins, `api_access` (archive_reader plus writing notes) for the API's login.
+Roles: `archive_reader` (SELECT on everything except `wa_auth`) for direct read-only logins, `api_access` (archive_reader plus writing notes and reminders) for the API's login.

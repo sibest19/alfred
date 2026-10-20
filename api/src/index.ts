@@ -1,6 +1,6 @@
 // HTTP API over the archive and the notes, for an agent (n8n, …) that shouldn't hold database credentials.
 // Its own service and container, so a restart never touches the WhatsApp session.
-// Read-only on the archive; writes only notes. Every request but /health needs "Authorization: Bearer <API_TOKEN>".
+// Read-only on the archive; writes only notes and reminders. Every request but /health needs "Authorization: Bearer <API_TOKEN>".
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { pino } from 'pino';
@@ -11,6 +11,9 @@ import { HttpError, readJson, tz, type Query } from './http.js';
 import {
   createNote, deleteNote, mergeNotes, pendingConsolidation, putSummary, recordConsolidation, restoreNote, searchNotes, topics, updateNote,
 } from './notes.js';
+import {
+  cancelReminder, claimDue, createReminder, doneReminder, listReminders, snoozeReminder, updateReminder,
+} from './reminders.js';
 import { transcribe } from './transcribe.js';
 
 const log = pino({ level: config.logLevel });
@@ -34,6 +37,13 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/notes\/(\d+)\/restore$/, (_r, _q, id) => restoreNote(id)],
   ['GET', /^\/consolidations\/pending$/, () => pendingConsolidation()],
   ['POST', /^\/consolidations$/, async (r) => recordConsolidation(await readJson(r))],
+  ['GET', /^\/reminders$/, (_r, q) => listReminders(q)],
+  ['POST', /^\/reminders$/, async (r) => createReminder(await readJson(r))],
+  ['POST', /^\/reminders\/due$/, () => claimDue()],
+  ['PATCH', /^\/reminders\/(\d+)$/, async (r, _q, id) => updateReminder(id, await readJson(r))],
+  ['DELETE', /^\/reminders\/(\d+)$/, (_r, _q, id) => cancelReminder(id)],
+  ['POST', /^\/reminders\/(\d+)\/snooze$/, async (r, _q, id) => snoozeReminder(id, await readJson(r))],
+  ['POST', /^\/reminders\/(\d+)\/done$/, (_r, _q, id) => doneReminder(id)],
   ['POST', /^\/transcribe$/, (r) => transcribe(r)],
 ];
 
@@ -64,7 +74,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       methodMismatch = true;
       continue;
     }
-    return send(res, method === 'POST' && (path === '/notes' || path === '/consolidations') ? 201 : 200, await handler(req, url.searchParams, m[1] ?? ''));
+    return send(res, method === 'POST' && (path === '/notes' || path === '/consolidations' || path === '/reminders') ? 201 : 200, await handler(req, url.searchParams, m[1] ?? ''));
   }
   send(res, methodMismatch ? 405 : 404, { error: methodMismatch ? 'method not allowed' : 'not found' });
 }

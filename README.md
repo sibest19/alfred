@@ -1,11 +1,11 @@
 # alfred
 
-The backend of a private assistant: an archive of a WhatsApp account, an HTTP API over it with a notes store, and local speech-to-text. An agent (an n8n workflow, here) talks to the API only and never holds database credentials.
+The backend of a private assistant: an archive of a WhatsApp account, an HTTP API over it with notes and reminders, and local speech-to-text. An agent (an n8n workflow, here) talks to the API only and never holds database credentials.
 
 | Service | | Image |
 |---|---|---|
 | [`ingest/`](ingest) | Links to WhatsApp as a read-only device and archives every message, edit, reaction, chat, contact and media file into Postgres | `ghcr.io/sibest19/alfred-ingest` |
-| [`api/`](api) | Message search, conversation context, counts, chats, contacts, notes and speech-to-text over HTTP, behind a bearer token | `ghcr.io/sibest19/alfred-api` |
+| [`api/`](api) | Message search, conversation context, counts, chats, contacts, notes, reminders and speech-to-text over HTTP, behind a bearer token | `ghcr.io/sibest19/alfred-api` |
 | [`transcriber/`](transcriber) | Speech-to-text (Parakeet Ultra, ONNX) on an Intel GPU or the CPU; voice notes become searchable text | `ghcr.io/sibest19/alfred-transcriber` |
 | [`db/`](db) | Shared Postgres client and the schema migrations (applied by `ingest`) | |
 
