@@ -63,12 +63,16 @@ api() {
 }
 
 api GET '/messages?q=ciao'
+api GET '/messages?after_id=0&limit=5'
 api GET /stats
 api GET /chats
 api GET '/contacts?q=rossi'
 api POST /notes '{"title":"Smoke","content":"A note from the smoke test","topic":"other"}'
 api GET '/notes?q=smoke'
 api GET /notes/topics
-api POST /reminders "{\"text\":\"Smoke\",\"due\":\"$(TZ=Europe/Rome date -d '+1 day' '+%Y-%m-%d %H:%M' 2>/dev/null || TZ=Europe/Rome date -v+1d '+%Y-%m-%d %H:%M')\"}"
+tomorrow=$(TZ=Europe/Rome date -d '+1 day' '+%Y-%m-%d %H:%M' 2>/dev/null || TZ=Europe/Rome date -v+1d '+%Y-%m-%d %H:%M')
+api POST /reminders "{\"text\":\"Smoke\",\"due\":\"$tomorrow\"}"
+api POST /reminders "{\"text\":\"Smoke check\",\"due\":\"$tomorrow\",\"kind\":\"check\"}"
 api GET /reminders
+api GET '/reminders?kind=check'
 echo 'smoke test passed'

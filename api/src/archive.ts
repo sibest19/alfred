@@ -37,9 +37,13 @@ const messageColumns = sql`
 export async function messages(q: Query) {
   const limit = intParam(q, 'limit', 30, 100);
   const asc = oneOf(param(q, 'order'), ['asc', 'desc'], 'order') === 'asc';
+  // a poller's cursor: only messages archived after this one, in archive order (a late arrival is still new)
+  const afterId = param(q, 'after_id');
+  if (afterId !== undefined && !/^\d+$/.test(afterId)) throw new HttpError(400, 'after_id must be a message id');
   const rows = await sql`
-    SELECT ${messageColumns} FROM messages_view v WHERE ${messageFilters(q)}
-    ORDER BY v.sent_at ${asc ? sql`ASC` : sql`DESC`}, v.id LIMIT ${limit}`;
+    SELECT ${messageColumns} FROM messages_view v
+    WHERE ${messageFilters(q)} ${afterId ? sql`AND v.id > ${afterId}::bigint` : sql``}
+    ORDER BY ${afterId ? sql`v.id` : sql`v.sent_at ${asc ? sql`ASC` : sql`DESC`}, v.id`} LIMIT ${limit}`;
   return { count: rows.length, messages: rows };
 }
 

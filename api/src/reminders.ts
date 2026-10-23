@@ -5,6 +5,7 @@ import { sql } from '@alfred/db';
 import { and, HttpError, intParam, like, oneOf, param, text, timeBound, tz, type Query } from './http.js';
 
 const STATUSES = ['pending', 'fired', 'done', 'cancelled'] as const;
+const KINDS = ['reminder', 'check'] as const;
 const UNITS = { day: 'day', daily: 'day', week: 'week', weekly: 'week', month: 'month', monthly: 'month', year: 'year', yearly: 'year' } as const;
 const WEEKDAYS = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
 const MAX_TEXT = 500;
@@ -15,7 +16,7 @@ const columns = sql`
   id::int AS id, text, to_char(due_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS due,
   to_char(due_at AT TIME ZONE ${tz}, 'Dy') AS weekday, status,
   repeat_unit, repeat_every, repeat_days, to_char((repeat_until - interval '1 second') AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS repeat_until,
-  coalesce(series_id, id)::int AS series, source,
+  coalesce(series_id, id)::int AS series, kind, source,
   to_char(fired_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS fired, to_char(done_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS done`;
 
 type Row = Record<string, any>;
@@ -91,11 +92,12 @@ export async function createReminder(body: Row) {
   if (!t) throw new HttpError(400, 'text is required');
   if (t.length > MAX_TEXT) throw new HttpError(400, `text is longer than ${MAX_TEXT} characters`);
   const source = oneOf(text(body.source) || 'user', ['user', 'assistant'] as const, 'source')!;
+  const kind = oneOf(text(body.kind) || 'reminder', KINDS, 'kind')!;
   const repeat = await repeatOf(body);
   const due = await firstOccurrence(await dueTime(body.due), repeat ?? null);
   const [r] = await sql`
-    INSERT INTO reminders (text, due_at, source, repeat_unit, repeat_every, repeat_days, repeat_until, repeat_anchor)
-    VALUES (${t}, ${due}, ${source}, ${repeat?.unit ?? null}, ${repeat?.every ?? 1}, ${repeat?.days ?? null}::int[], ${repeat?.until ?? null},
+    INSERT INTO reminders (text, due_at, kind, source, repeat_unit, repeat_every, repeat_days, repeat_until, repeat_anchor)
+    VALUES (${t}, ${due}, ${kind}, ${source}, ${repeat?.unit ?? null}, ${repeat?.every ?? 1}, ${repeat?.days ?? null}::int[], ${repeat?.until ?? null},
             ${repeat ? sql`${due}::timestamptz AT TIME ZONE ${tz}` : null})
     RETURNING ${columns}`;
   return view(r);
@@ -106,6 +108,7 @@ export async function listReminders(q: Query) {
   const statuses =
     status === 'all' ? [...STATUSES] : status === 'open' ? ['pending', 'fired'] : [oneOf(status, STATUSES, 'status')!];
   const words = param(q, 'q');
+  const kind = oneOf(param(q, 'kind'), KINDS, 'kind');
   const from = timeBound(param(q, 'from'), 'from', false);
   const to = timeBound(param(q, 'to'), 'to', true);
   const rows = await sql`
@@ -115,6 +118,7 @@ export async function listReminders(q: Query) {
       // fired ones stay "open" for a day, until done or snoozed
       status === 'open' ? sql`(status = 'pending' OR fired_at > now() - interval '1 day')` : undefined,
       words ? sql`text ILIKE ${like(words)}` : undefined,
+      kind ? sql`kind = ${kind}` : undefined,
       from && sql`due_at >= ${from}`,
       to && sql`due_at < ${to}`,
     ])}
@@ -206,8 +210,8 @@ export async function cancelReminder(id: string) {
 async function scheduleNext(tx: typeof sql, r: Row) {
   // all in SQL: repeat_anchor is a timestamp without zone, which a round trip through a JS Date would shift
   const [n] = await tx`
-    INSERT INTO reminders (text, due_at, source, repeat_unit, repeat_every, repeat_days, repeat_until, repeat_anchor, series_id)
-    SELECT text, nxt, source, repeat_unit, repeat_every, repeat_days, repeat_until, repeat_anchor, coalesce(series_id, id)
+    INSERT INTO reminders (text, due_at, kind, source, repeat_unit, repeat_every, repeat_days, repeat_until, repeat_anchor, series_id)
+    SELECT text, nxt, kind, source, repeat_unit, repeat_every, repeat_days, repeat_until, repeat_anchor, coalesce(series_id, id)
     FROM (SELECT *, reminder_next(repeat_anchor, repeat_unit, repeat_every, repeat_days, repeat_until, greatest(now(), due_at), ${tz}) AS nxt
           FROM reminders WHERE id = ${r.id}) x
     WHERE nxt IS NOT NULL

@@ -11,7 +11,7 @@ ALTER ROLE assistant_api SET statement_timeout = '15s';
 
 | Endpoint | |
 |---|---|
-| `GET /messages` | `q` (words, prefix match; `match=any` for OR), `chat` and `sender` (name or JID; `sender=me`), `kind` (`text`, `image`, `video`, `audio`, `document`, `sticker`, `other`), `from`/`to` (`2026-10-01` or `2026-10-01 18:30`; a bare `to` date includes that day), `order` (`desc`), `limit` (30, max 100) |
+| `GET /messages` | `q` (words, prefix match; `match=any` for OR), `chat` and `sender` (name or JID; `sender=me`), `kind` (`text`, `image`, `video`, `audio`, `document`, `sticker`, `other`), `from`/`to` (`2026-10-01` or `2026-10-01 18:30`; a bare `to` date includes that day), `order` (`desc`), `limit` (30, max 100); `after_id` (for a poller: only messages archived after that id, in archive order, so a late arrival is still new) |
 | `GET /messages/<id>/context` | the conversation around a message: `before`, `after` (10 each, max 50) |
 | `GET /stats` | message counts with the `/messages` filters, `group_by` `chat` \| `sender` \| `day` \| `month` \| `kind` |
 | `GET /chats` | chats by name (`q`), most recent first |
@@ -26,8 +26,8 @@ ALTER ROLE assistant_api SET statement_timeout = '15s';
 | `PUT /notes/summaries` | JSON `topic`, `content` (`title`, `tags`): creates or replaces the topic's summary note |
 | `GET /consolidations/pending` | notes created, changed or deleted since the last recorded consolidation |
 | `POST /consolidations` | JSON `started_at`, `changes`, `report`: records a consolidation run |
-| `GET /reminders` | `status` (`open`: pending, and fired in the last day; `pending`, `fired`, `done`, `cancelled`, `all`), `q` (words in the text), `from`/`to` (due time), `limit` (50, max 200); with `now` |
-| `POST /reminders` | JSON `text`, `due` (`2026-10-23 15:00` in `TZ`, or with an offset; a bare date is 09:00; not in the past), `repeat` (`day`, `week`, `month`, `year`), `every` (1), `days` (weekly: `mo,th`), `until` (a date), `source` |
+| `GET /reminders` | `status` (`open`: pending, and fired in the last day; `pending`, `fired`, `done`, `cancelled`, `all`), `q` (words in the text), `kind`, `from`/`to` (due time), `limit` (50, max 200); with `now` |
+| `POST /reminders` | JSON `text`, `due` (`2026-10-23 15:00` in `TZ`, or with an offset; a bare date is 09:00; not in the past), `repeat` (`day`, `week`, `month`, `year`), `every` (1), `days` (weekly: `mo,th`), `until` (a date), `kind` (`reminder`: sent to the user; `check`: for the assistant itself, which the scheduler wakes with it), `source` |
 | `PATCH /reminders/<id>` | `text`, `due` (on a repeating reminder this moves the whole series), `repeat` (`none` stops it after this occurrence), `every`, `days`, `until` |
 | `POST /reminders/<id>/snooze` | JSON `minutes` (60) or `until`: moves this occurrence only; a fired reminder becomes pending again |
 | `POST /reminders/<id>/done` | marks it done; on a pending repeating reminder this skips the occurrence and returns the `next` |
