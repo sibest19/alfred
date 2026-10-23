@@ -1,0 +1,61 @@
+// Renovate (GitHub app): one pull request per update, merged by Renovate itself once CI is green
+// (build, smoke test against WhatsApp, images). Updates of what goes into the images carry the "release"
+// label, and release.yml ships them as the next patch version.
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['config:recommended', 'docker:pinDigests', 'helpers:pinGitHubActionDigests'],
+  timezone: 'Europe/Rome',
+  labels: ['dependencies'],
+  // A version is proposed after it has been out for a while: time for a hijacked release to be pulled
+  minimumReleaseAge: '3 days',
+  osvVulnerabilityAlerts: true,
+  // No branch protection to make GitHub wait for the checks: Renovate merges when they have passed
+  platformAutomerge: false,
+  lockFileMaintenance: {
+    enabled: true,
+    automerge: true,
+    schedule: ['before 6am on monday'],
+    addLabels: ['release'],
+  },
+  packageRules: [
+    {
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
+      automerge: true,
+    },
+    // Rebuilt base images and action digests: once a week, not on every upstream rebuild
+    {
+      matchUpdateTypes: ['digest'],
+      schedule: ['before 6am on monday'],
+    },
+    // Baileys follows WhatsApp's changes, so its fixes are wanted soon; the smoke test checks the handshake
+    {
+      matchPackageNames: ['baileys'],
+      minimumReleaseAge: '1 day',
+    },
+    // The node the images run
+    {
+      matchPackageNames: ['@types/node'],
+      matchUpdateTypes: ['major'],
+      enabled: false,
+    },
+    // What ends up in the images
+    {
+      matchManagers: ['npm'],
+      matchDepTypes: ['dependencies'],
+      addLabels: ['release'],
+    },
+    {
+      matchManagers: ['dockerfile', 'pip_requirements'],
+      addLabels: ['release'],
+    },
+    // The transcriber runs on an Intel GPU that CI doesn't have: its updates come together once a month
+    // and wait for a manual merge
+    {
+      matchFileNames: ['transcriber/**'],
+      groupName: 'transcriber',
+      schedule: ['on the first day of the month'],
+      pinDigests: false,
+      automerge: false,
+    },
+  ],
+}

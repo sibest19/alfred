@@ -1,0 +1,41 @@
+# Smoke test of the built images (smoke/run.sh): a fresh Postgres, ingest and the API.
+services:
+  postgres:
+    image: docker.io/pgvector/pgvector:pg18
+    environment:
+      POSTGRES_USER: assistant
+      POSTGRES_PASSWORD: smoke
+      POSTGRES_DB: assistant
+    healthcheck:
+      test: [CMD, pg_isready, -U, assistant, -d, assistant]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  # Never paired: it only gets as far as WhatsApp's pairing QR
+  ingest:
+    image: ${INGEST_IMAGE:-alfred-ingest:smoke}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TZ: Europe/Rome
+      PGHOST: postgres
+      PGUSER: assistant
+      PGPASSWORD: smoke
+      PGDATABASE: assistant
+    ports:
+      - 127.0.0.1:18080:8080
+    tmpfs:
+      - /media
+  api:
+    image: ${API_IMAGE:-alfred-api:smoke}
+    profiles: [api]
+    environment:
+      TZ: Europe/Rome
+      PGHOST: postgres
+      PGUSER: assistant_api
+      PGPASSWORD: smoke
+      PGDATABASE: assistant
+      API_TOKEN: smoke-token-0123456789
+    ports:
+      - 127.0.0.1:18081:8080

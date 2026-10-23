@@ -5,6 +5,11 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  # release.yml starts it on the tag it creates (a tag pushed with GITHUB_TOKEN starts no workflow)
+  workflow_dispatch:
+  # Daily smoke test of main: WhatsApp can break the current Baileys without any change here
+  schedule:
+    - cron: '17 5 * * *'
 
 permissions:
   contents: read
@@ -22,9 +27,33 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  # The built ingest and api images against a fresh Postgres and the real WhatsApp (smoke/run.sh)
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ingest/Dockerfile
+          load: true
+          tags: alfred-ingest:smoke
+          cache-from: type=gha,scope=ingest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: api/Dockerfile
+          load: true
+          tags: alfred-api:smoke
+          cache-from: type=gha,scope=api
+      - run: smoke/run.sh
+
   # One image per service: ghcr.io/<owner>/<repo>-<service>, exact version tags only (the stack pins one)
   image:
-    needs: build
+    needs: [build, smoke]
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     strategy:
       matrix:

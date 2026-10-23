@@ -1,0 +1,45 @@
+name: release
+
+# A merged pull request labeled "release" (Renovate labels updates of what goes into the images: runtime
+# dependencies, base images, the lock file) ships as the next patch version: tag, GitHub release, then
+# image.yml on that tag. Releases by hand (pushing a v* tag) work as before.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write
+
+# One at a time, so two merges in a row get two different versions
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - id: pr
+        run: |
+          labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at) | .labels[].name] | join(",")')
+          echo "labels: ${labels:-none}"
+          if [[ ",$labels," == *,release,* ]]; then echo "release=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.pr.outputs.release == 'true'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - if: steps.pr.outputs.release == 'true'
+        run: |
+          if tag=$(git describe --tags --exact-match --match 'v*' "$GITHUB_SHA" 2>/dev/null); then
+            echo "already released as $tag"
+            exit 0
+          fi
+          last=$(git tag -l 'v*.*.*' --sort=-v:refname | head -1)
+          IFS=. read -r major minor patch <<< "${last#v}"
+          next="v$major.$minor.$((patch + 1))"
+          echo "$last -> $next"
+          gh release create "$next" --target "$GITHUB_SHA" --title "$next" --generate-notes --notes-start-tag "$last"
+          gh workflow run image.yml --ref "$next"
