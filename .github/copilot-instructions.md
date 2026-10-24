@@ -6,7 +6,7 @@ alfred is the backend of a private assistant: `ingest` archives a WhatsApp accou
 
 - **ingest only reads.** It is a passive linked device: it must never send messages, reactions, read receipts, presence or anything else to WhatsApp. Flag any change that could.
 - **Credentials stay out of reach.** `wa_auth` holds the WhatsApp session. The `archive_reader` and `api_access` roles must never get access to it, and the API must not need more than `api_access` (read on the archive, write on notes and reminders).
-- **Migrations are append-only.** `db/migrations/NNN_*.sql` are applied in order at ingest startup, each in its own transaction, and recorded by file name. An applied migration is never edited or renamed: a change is a new file with the next number. Check that new tables and columns get the grants the roles need, and that a migration also works on a database that already holds data.
+- **Migrations are append-only.** `db/migrations/NNN_*.sql` are applied in order at ingest startup, all pending ones in a single transaction under an advisory lock (one failing rolls back the others), and recorded by file name. An applied migration is never edited or renamed: a change is a new file with the next number. Check that new tables and columns get the grants the roles need, and that a migration also works on a database that already holds data.
 - **SQL is parameterized.** Queries use the `postgres` tagged template (`sql\`…\``), with fragments composed as values. Flag user input reaching `sql.unsafe` or string-built SQL.
 - **Every API endpoint except `/health` requires the bearer token.**
 
@@ -30,4 +30,4 @@ alfred is the backend of a private assistant: `ingest` archives a WhatsApp accou
 - GitHub Actions are pinned by commit digest with the version in a comment. Keep it that way.
 - CI builds, then runs `smoke/run.sh`: the ingest image up to WhatsApp's pairing QR, and the API's reads and writes against a fresh Postgres.
 - Renovate opens and merges most dependency updates. On those pull requests, look at breaking changes in the changelog, especially for `baileys`, `postgres` and the base images, rather than at the diff itself.
-- The transcriber runs on an Intel GPU that CI doesn't have, and its image is amd64 only (OpenVINO has no ARM wheels). Point out changes there that can't be verified by CI.
+- The transcriber runs on an Intel GPU that CI doesn't have: CI only runs it on the CPU (`smoke/transcriber.sh`), and its image is amd64 only (OpenVINO has no ARM wheels). Point out changes to the GPU path, which CI can't verify.
