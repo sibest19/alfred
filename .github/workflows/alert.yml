@@ -1,0 +1,51 @@
+name: alert
+
+# A failed run of image or release outside pull requests (the daily smoke test, main, a release tag) opens an
+# issue labeled "ci-failure", so it doesn't go unnoticed; later failures comment on it, and the next successful
+# run of the same kind closes it.
+on:
+  workflow_run:
+    workflows: [image, release]
+    types: [completed]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: alert-${{ github.event.workflow_run.name }}
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    if: >-
+      github.event.workflow_run.event != 'pull_request' &&
+      contains(fromJSON('["success", "failure", "timed_out", "startup_failure"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      NAME: ${{ github.event.workflow_run.name }}
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      EVENT: ${{ github.event.workflow_run.event }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      URL: ${{ github.event.workflow_run.html_url }}
+    steps:
+      - run: |
+          # Runs on a tag publish images: one issue for all of them, another for main
+          if [[ $BRANCH == v* ]]; then where='release tags'; else where=$BRANCH; fi
+          title="$NAME failing on $where"
+          issue=$(gh issue list --label ci-failure --state open --json number,title \
+            | jq -r --arg t "$title" '[.[] | select(.title == $t)][0].number // empty')
+          run="[$NAME run]($URL) ($EVENT on \`$BRANCH\`, ${SHA:0:7}): $CONCLUSION"
+
+          if [[ $CONCLUSION == success ]]; then
+            if [[ -n $issue ]]; then gh issue close "$issue" --comment "Passing again: $run"; fi
+          elif [[ -n $issue ]]; then
+            gh issue comment "$issue" --body "Still failing: $run"
+          else
+            gh label create ci-failure --color B60205 --description 'A workflow failing outside pull requests' --force
+            gh issue create --title "$title" --label ci-failure --body "$run
+
+          The daily run on \`main\` is the smoke test against WhatsApp: a failure there with no change here usually means WhatsApp changed and Baileys needs an update."
+          fi
