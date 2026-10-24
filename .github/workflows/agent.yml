@@ -88,8 +88,8 @@ jobs:
       - run: |
           # The pull request this run opened: by the app, during the run, for this issue; none if not exactly one
           prs=$(gh pr list --author app/opencode-agent --state open --json number,createdAt,body \
-            | jq -r --arg from "$STARTED" --arg to "$ENDED" --arg i "Fixes #$ISSUE" \
-              '.[] | select(.createdAt >= $from and .createdAt <= $to and ((.body // "") | contains($i))) | .number')
+            | jq -r --arg from "$STARTED" --arg to "$ENDED" --arg re "Fixes #$ISSUE([^0-9]|$)" \
+              '.[] | select(.createdAt >= $from and .createdAt <= $to and ((.body // "") | test($re))) | .number')
           if [[ $(wc -w <<<"$prs") -ne 1 ]]; then echo "pull requests found: ${prs:-none}; not armed"; exit 0; fi
           pr=$prs
           # Renamed files count under both names

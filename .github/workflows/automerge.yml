@@ -18,6 +18,9 @@ permissions:
   contents: write
   pull-requests: write
   actions: write
+  # gh pr checks
+  checks: read
+  statuses: read
 
 concurrency:
   group: automerge-${{ inputs.pr }}
@@ -45,12 +48,15 @@ jobs:
             exit 0
           fi
 
-          # CI must have run on this commit (its checks show up a little after the pull request), then all pass
-          for _ in $(seq 60); do
-            names=$(gh pr checks "$PR" --json name --jq '.[].name' 2>/dev/null || true)
-            grep -qx build <<<"$names" && grep -qx smoke <<<"$names" && grep -qx transcriber <<<"$names" && break
-            sleep 10
-          done
+          # CI and CodeQL must have started on this commit (their checks show up a little after the pull request),
+          # then every check must pass
+          registered() {
+            local names
+            names=$(gh pr checks "$PR" --json name --jq '.[].name') || return 1
+            for check in build smoke transcriber CodeQL; do grep -qx "$check" <<<"$names" || return 1; done
+          }
+          for _ in $(seq 60); do registered && break; sleep 10; done
+          if ! registered; then echo 'CI or CodeQL never started on this commit'; exit 0; fi
           if ! gh pr checks "$PR" --watch --interval 30; then echo 'a check failed'; exit 0; fi
           if [[ $(head) != "OPEN app/opencode-agent false $SHA" ]]; then echo "changed meanwhile: $(head)"; exit 0; fi
 
