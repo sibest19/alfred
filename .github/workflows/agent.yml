@@ -1,7 +1,7 @@
 name: agent
 
 # OpenCode (https://opencode.ai/docs/github/) with a model on OpenRouter (secret OPENROUTER_API_KEY). It works
-# through this repository's own GitHub App, alfred-agent-sibest19 (variable AGENT_APP_CLIENT_ID, secret
+# through this repository's own GitHub App, alfred-github-agent (variable AGENT_APP_CLIENT_ID, secret
 # AGENT_APP_PRIVATE_KEY): contents, pull requests and issues only, so it can't change workflows or secrets, and
 # its pull requests start CI (unlike ones opened with GITHUB_TOKEN). Started by:
 # - "/oc …" in a comment on an issue or pull request, by the owner or a collaborator
@@ -108,7 +108,7 @@ jobs:
     steps:
       - run: |
           # The pull request this run opened: by the app, during the run, for this issue; none if not exactly one
-          prs=$(gh pr list --author app/alfred-agent-sibest19 --state open --json number,createdAt,body \
+          prs=$(gh pr list --author app/alfred-github-agent --state open --json number,createdAt,body \
             | jq -r --arg from "$STARTED" --arg to "$ENDED" --arg re "Fixes #$ISSUE([^0-9]|$)" \
               '.[] | select(.createdAt >= $from and .createdAt <= $to and ((.body // "") | test($re))) | .number')
           if [[ $(wc -w <<<"$prs") -ne 1 ]]; then echo "pull requests found: ${prs:-none}; not armed"; exit 0; fi
