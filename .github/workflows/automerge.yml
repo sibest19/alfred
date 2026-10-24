@@ -1,0 +1,55 @@
+name: automerge
+
+# The agent's fix for a ci-failure issue, armed by agent.yml (label agent-fix and a github-actions comment naming
+# the commit), merges once every check on that commit has passed, CodeQL included. Nothing else is merged here:
+# the author must be the OpenCode app, the branch in this repository, the commit the armed one. Merged with
+# GITHUB_TOKEN, whose pushes start no workflow, so it starts image and release on main itself.
+on:
+  workflow_run:
+    workflows: [image]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  merge:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+    steps:
+      - run: |
+          if [[ $HEAD_REPO != "$GH_REPO" ]]; then echo 'from a fork'; exit 0; fi
+          pr=$(gh pr list --head "$BRANCH" --state open --label agent-fix --json number,author,headRefOid \
+            | jq -r --arg sha "$SHA" '.[] | select(.author.login == "app/opencode-agent" and .headRefOid == $sha) | .number')
+          if [[ -z $pr ]]; then echo 'not an armed agent fix'; exit 0; fi
+          if ! gh api "repos/$GH_REPO/issues/$pr/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | .body' | grep -qF "Automerge armed for $SHA"; then
+            echo "commit $SHA is not the armed one"
+            exit 0
+          fi
+          # Checked again here, in case the branch changed what it touches
+          files=$(gh pr diff "$pr" --name-only)
+          if grep -qE '^(\.github/|opencode\.json$|smoke/|db/migrations/)' <<<"$files"; then
+            echo 'touches CI, the agent, the smoke tests or the migrations'
+            exit 0
+          fi
+          if ! gh pr checks "$pr" --watch --interval 30; then
+            echo 'a check failed'
+            exit 0
+          fi
+          # Like Renovate's updates of what goes into the images: shipped as the next patch version
+          if grep -qE '^(api|ingest|db|transcriber)/|^package(-lock)?\.json$' <<<"$files"; then
+            gh pr edit "$pr" --add-label release
+          fi
+          gh pr merge "$pr" --squash --match-head-commit "$SHA" --delete-branch
+          gh workflow run image.yml --ref main
+          gh workflow run release.yml --ref main

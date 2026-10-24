@@ -6,6 +6,8 @@ name: release
 on:
   push:
     branches: [main]
+  # automerge.yml merges with GITHUB_TOKEN, whose pushes start no workflow
+  workflow_dispatch:
 
 permissions:
   contents: write
