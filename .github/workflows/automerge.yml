@@ -2,7 +2,7 @@ name: automerge
 
 # Merges the agent's fix for a ci-failure issue once every check on it has passed, CodeQL included. Started only
 # by agent.yml's arm job, with the pull request and the commit (starting a workflow needs actions: write, which the
-# agent's tokens don't have). The author must be the OpenCode app, the branch in this repository, the head still
+# agent's tokens don't have). The author must be the agent's app, the branch in this repository, the head still
 # that commit. Merged with GITHUB_TOKEN, whose pushes start no workflow, so it starts image and release on main.
 on:
   workflow_dispatch:
@@ -39,7 +39,7 @@ jobs:
       - run: |
           head() { gh pr view "$PR" --json state,author,isCrossRepository,headRefOid \
             --jq '"\(.state) \(.author.login) \(.isCrossRepository) \(.headRefOid)"'; }
-          if [[ $(head) != "OPEN app/opencode-agent false $SHA" ]]; then echo "not mergeable here: $(head)"; exit 0; fi
+          if [[ $(head) != "OPEN app/alfred-agent-sibest19 false $SHA" ]]; then echo "not mergeable here: $(head)"; exit 0; fi
 
           # Checked again, renamed files under both names
           files=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
@@ -64,7 +64,7 @@ jobs:
             echo 'not every check passed'
             exit 0
           fi
-          if [[ $(head) != "OPEN app/opencode-agent false $SHA" ]]; then echo "changed meanwhile: $(head)"; exit 0; fi
+          if [[ $(head) != "OPEN app/alfred-agent-sibest19 false $SHA" ]]; then echo "changed meanwhile: $(head)"; exit 0; fi
 
           # Like Renovate's updates of what goes into the images: shipped as the next patch version
           if grep -qE '^(api|ingest|db|transcriber)/|^package(-lock)?\.json$' <<<"$files"; then
