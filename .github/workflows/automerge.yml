@@ -1,0 +1,76 @@
+name: automerge
+
+# Merges the agent's fix for a ci-failure issue once every check on it has passed, CodeQL included. Started only
+# by agent.yml's arm job, with the pull request and the commit (starting a workflow needs actions: write, which the
+# agent's tokens don't have). The author must be the OpenCode app, the branch in this repository, the head still
+# that commit. Merged with GITHUB_TOKEN, whose pushes start no workflow, so it starts image and release on main.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+      sha:
+        description: The commit to merge, the pull request's head when it was armed
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  # gh pr checks
+  checks: read
+  statuses: read
+
+concurrency:
+  group: automerge-${{ inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ inputs.pr }}
+      SHA: ${{ inputs.sha }}
+    steps:
+      - run: |
+          head() { gh pr view "$PR" --json state,author,isCrossRepository,headRefOid \
+            --jq '"\(.state) \(.author.login) \(.isCrossRepository) \(.headRefOid)"'; }
+          if [[ $(head) != "OPEN app/opencode-agent false $SHA" ]]; then echo "not mergeable here: $(head)"; exit 0; fi
+
+          # Checked again, renamed files under both names
+          files=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
+          if grep -qE '^(\.github/|opencode\.json$|smoke/|db/migrations/)' <<<"$files"; then
+            echo 'touches CI, the agent, the smoke tests or the migrations'
+            exit 0
+          fi
+
+          # Every check of CI (the three image builds start after build and smoke) and CodeQL must show up on this
+          # commit, then all must pass: not failed, cancelled or skipped
+          registered() {
+            local names
+            names=$(gh pr checks "$PR" --json name --jq '.[].name') || return 1
+            for check in build smoke transcriber CodeQL; do grep -qx "$check" <<<"$names" || return 1; done
+            [[ $(grep -c '^image (' <<<"$names") -eq 3 ]]
+          }
+          for _ in $(seq 120); do registered && break; sleep 15; done
+          if ! registered; then echo 'CI or CodeQL never fully started on this commit'; exit 0; fi
+          gh pr checks "$PR" --watch --interval 30 || true
+          if ! gh pr checks "$PR" --json bucket --jq 'length > 0 and all(.bucket == "pass")' | grep -qx true; then
+            gh pr checks "$PR" || true
+            echo 'not every check passed'
+            exit 0
+          fi
+          if [[ $(head) != "OPEN app/opencode-agent false $SHA" ]]; then echo "changed meanwhile: $(head)"; exit 0; fi
+
+          # Like Renovate's updates of what goes into the images: shipped as the next patch version
+          if grep -qE '^(api|ingest|db|transcriber)/|^package(-lock)?\.json$' <<<"$files"; then
+            gh pr edit "$PR" --add-label release
+          fi
+          gh pr merge "$PR" --squash --match-head-commit "$SHA" --delete-branch
+          merged=$(gh pr view "$PR" --json mergeCommit --jq .mergeCommit.oid)
+          gh workflow run image.yml --ref main
+          gh workflow run release.yml --ref main -f sha="$merged"

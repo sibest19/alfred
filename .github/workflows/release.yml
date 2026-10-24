@@ -6,6 +6,12 @@ name: release
 on:
   push:
     branches: [main]
+  # automerge.yml merges with GITHUB_TOKEN, whose pushes start no workflow
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: The merge commit to release (default the head of main)
+        required: false
 
 permissions:
   contents: write
@@ -21,10 +27,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      SHA: ${{ inputs.sha || github.sha }}
     steps:
       - id: pr
         run: |
-          labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at) | .labels[].name] | join(",")')
+          labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq '[.[] | select(.merged_at) | .labels[].name] | join(",")')
           echo "labels: ${labels:-none}"
           if [[ ",$labels," == *,release,* ]]; then echo "release=true" >> "$GITHUB_OUTPUT"; fi
       - if: steps.pr.outputs.release == 'true'
@@ -33,7 +40,7 @@ jobs:
           fetch-depth: 0
       - if: steps.pr.outputs.release == 'true'
         run: |
-          if tag=$(git describe --tags --exact-match --match 'v*' "$GITHUB_SHA" 2>/dev/null); then
+          if tag=$(git describe --tags --exact-match --match 'v*' "$SHA" 2>/dev/null); then
             echo "already released as $tag"
             exit 0
           fi
@@ -41,5 +48,5 @@ jobs:
           IFS=. read -r major minor patch <<< "${last#v}"
           next="v$major.$minor.$((patch + 1))"
           echo "$last -> $next"
-          gh release create "$next" --target "$GITHUB_SHA" --title "$next" --generate-notes --notes-start-tag "$last"
+          gh release create "$next" --target "$SHA" --title "$next" --generate-notes --notes-start-tag "$last"
           gh workflow run image.yml --ref "$next"
