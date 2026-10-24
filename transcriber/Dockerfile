@@ -1,5 +1,5 @@
 # Ubuntu 24.04 for Intel's GPU compute runtime (OpenCL + Level Zero) with Arc (DG2) support
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-venv ffmpeg ca-certificates \
       intel-opencl-icd libze1 libze-intel-gpu1 \
