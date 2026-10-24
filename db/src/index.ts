@@ -17,7 +17,7 @@ type Logger = { info(obj: object, msg: string): void };
 
 const MIGRATIONS_DIR = new URL('../migrations/', import.meta.url).pathname;
 
-/** Applies migrations/NNN_*.sql in order, each in its own transaction, under an advisory lock. */
+/** Applies migrations/NNN_*.sql in order, all pending ones in a single transaction under an advisory lock: one failing rolls back the others. */
 export async function migrate(log: Logger): Promise<void> {
   await sql`CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`;
   const files = (await readdir(MIGRATIONS_DIR)).filter((f) => /^\d+_.+\.sql$/.test(f)).sort();
