@@ -7,8 +7,6 @@ import { config } from './config.js';
 export const tz = config.timezone;
 export const MAX_JSON = 1024 * 1024;
 export const MAX_AUDIO = 25 * 1024 * 1024;
-// Deliberate type error, a test of the agent's self-repair (alert.yml → agent.yml → automerge.yml): remove this.
-export const SELF_TEST: number = 'broken on purpose';
 
 export class HttpError extends Error {
   constructor(
