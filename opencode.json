@@ -1,5 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": [".github/copilot-instructions.md"],
-  "small_model": "openrouter/z-ai/glm-5.3"
+  "small_model": "{env:AGENT_MODEL}"
 }
