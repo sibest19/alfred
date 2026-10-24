@@ -50,9 +50,32 @@ jobs:
           cache-from: type=gha,scope=api
       - run: smoke/run.sh
 
+  # The transcriber image on the CPU (CI has no Intel GPU): the model loads and a spoken sentence comes back
+  transcriber:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: transcriber
+          file: transcriber/Dockerfile
+          load: true
+          tags: alfred-transcriber:smoke
+          cache-from: type=gha,scope=transcriber
+      # The model (about 1.2 GB), downloaded again only when app.py changes
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: smoke/models
+          key: transcriber-model-${{ hashFiles('transcriber/app.py') }}
+          restore-keys: transcriber-model-
+      - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends espeak-ng
+      - run: smoke/transcriber.sh
+
   # One image per service: ghcr.io/<owner>/<repo>-<service>, exact version tags only (the stack pins one)
   image:
-    needs: [build, smoke]
+    needs: [build, smoke, transcriber]
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     strategy:

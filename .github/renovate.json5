@@ -22,6 +22,19 @@
       matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
       automerge: true,
     },
+    // Majors of what CI fully exercises: the actions (login-action only runs on a release, where a failure
+    // opens an issue through alert.yml) and the dev tools (build and typecheck)
+    {
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['major'],
+      automerge: true,
+    },
+    {
+      matchManagers: ['npm'],
+      matchDepTypes: ['devDependencies'],
+      matchUpdateTypes: ['major'],
+      automerge: true,
+    },
     // Rebuilt base images and action digests: once a week, not on every upstream rebuild
     {
       matchUpdateTypes: ['digest'],
@@ -48,13 +61,17 @@
       matchManagers: ['dockerfile', 'pip_requirements'],
       addLabels: ['release'],
     },
-    // The transcriber runs on an Intel GPU that CI doesn't have: its updates come together once a month
-    // and wait for a manual merge
+    // The transcriber runs on an Intel GPU that CI doesn't have: CI only tests it on the CPU, so its updates
+    // come together once a month, and its majors wait for a manual merge
     {
       matchFileNames: ['transcriber/**'],
       groupName: 'transcriber',
       schedule: ['on the first day of the month'],
       pinDigests: false,
+    },
+    {
+      matchFileNames: ['transcriber/**'],
+      matchUpdateTypes: ['major'],
       automerge: false,
     },
   ],
