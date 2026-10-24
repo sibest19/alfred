@@ -1,8 +1,8 @@
 name: alert
 
 # A failed run of image or release outside pull requests (the daily smoke test, main, a release tag) opens an
-# issue labeled "ci-failure", so it doesn't go unnoticed; later failures comment on it, and the next successful
-# run of the same kind closes it.
+# issue labeled "ci-failure", so it doesn't go unnoticed, and starts agent.yml on it; later failures comment on it,
+# and the next successful run of the same kind closes it.
 on:
   workflow_run:
     workflows: [image, release]
@@ -10,6 +10,8 @@ on:
 
 permissions:
   issues: write
+  # to start agent.yml on a new issue
+  actions: write
 
 concurrency:
   group: alert-${{ github.event.workflow_run.name }}
@@ -45,7 +47,9 @@ jobs:
             gh issue comment "$issue" --body "Still failing: $run"
           else
             gh label create ci-failure --color B60205 --description 'A workflow failing outside pull requests' --force
-            gh issue create --title "$title" --label ci-failure --body "$run
+            url=$(gh issue create --title "$title" --label ci-failure --body "$run
 
-          The daily run on \`main\` is the smoke test against WhatsApp: a failure there with no change here usually means WhatsApp changed and Baileys needs an update."
+          The daily run on \`main\` is the smoke test against WhatsApp: a failure there with no change here usually means WhatsApp changed and Baileys needs an update.")
+            # The agent looks for the cause and opens a fix
+            gh workflow run agent.yml -f issue="${url##*/}"
           fi
