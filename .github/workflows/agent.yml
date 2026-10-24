@@ -44,9 +44,6 @@ jobs:
     steps:
       - id: start
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
       - id: app
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
@@ -55,6 +52,10 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
           permission-issues: write
+      # git pushes with the app's token: with use_github_token, OpenCode leaves git's authentication as it finds it
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          token: ${{ steps.app.outputs.token }}
       # Commits by the app's bot user (OpenCode sets it only with its own app)
       - env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
