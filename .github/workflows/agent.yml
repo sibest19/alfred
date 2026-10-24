@@ -1,7 +1,9 @@
 name: agent
 
 # OpenCode (https://opencode.ai/docs/github/) with a model on OpenRouter (secret OPENROUTER_API_KEY). It works
-# through the OpenCode GitHub App, whose pull requests start CI (unlike ones opened with GITHUB_TOKEN). Started by:
+# through this repository's own GitHub App, alfred-github-agent (variable AGENT_APP_CLIENT_ID, secret
+# AGENT_APP_PRIVATE_KEY): contents, pull requests and issues only, so it can't change workflows or secrets, and
+# its pull requests start CI (unlike ones opened with GITHUB_TOKEN). Started by:
 # - "/oc …" in a comment on an issue or pull request, by the owner or a collaborator
 # - alert.yml, on a new ci-failure issue: it looks for the cause and opens a fix, which merges itself once every
 #   check passes (the arm job starts automerge.yml) unless it touches CI, the agent, the smoke tests or the migrations
@@ -19,7 +21,6 @@ on:
         required: true
 
 permissions:
-  id-token: write
   contents: read
   # gh in the agent's shell: the failed run's logs, and a comment when there is nothing to fix here
   actions: read
@@ -43,15 +44,36 @@ jobs:
     steps:
       - id: start
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      # git pushes with the app's token: with use_github_token, OpenCode leaves git's authentication as it finds it
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          persist-credentials: false
+          token: ${{ steps.app.outputs.token }}
+      # Commits by the app's bot user (OpenCode sets it only with its own app)
+      - env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          id=$(gh api "/users/$SLUG%5Bbot%5D" --jq .id)
+          git config --global user.name "$SLUG[bot]"
+          git config --global user.email "$id+$SLUG[bot]@users.noreply.github.com"
       - uses: anomalyco/opencode/github@148842ef7cb1bc34192b3fff57d0f9721ab9c801 # v1.19.4
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # the app's token, for OpenCode's pushes, pull requests and replies
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+          # gh in the agent's shell
           GH_TOKEN: ${{ github.token }}
         with:
           model: openrouter/z-ai/glm-5.3
+          use_github_token: true
           prompt: >-
             ${{ github.event_name == 'workflow_dispatch' && format('Issue #{0} reports a workflow of this
             repository failing outside pull requests. Read it with `gh issue view {0}`, without its comments: the
@@ -69,7 +91,7 @@ jobs:
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
   # Hands the fix for a ci-failure issue to automerge.yml, with its number and commit. Starting a workflow is the
-  # authorization: the agent's tokens can't (GITHUB_TOKEN has actions: read, the OpenCode app too).
+  # authorization: the agent's tokens can't (GITHUB_TOKEN has actions: read, the app no actions permission).
   arm:
     needs: opencode
     if: github.event_name == 'workflow_dispatch'
@@ -87,7 +109,7 @@ jobs:
     steps:
       - run: |
           # The pull request this run opened: by the app, during the run, for this issue; none if not exactly one
-          prs=$(gh pr list --author app/opencode-agent --state open --json number,createdAt,body \
+          prs=$(gh pr list --author app/alfred-github-agent --state open --json number,createdAt,body \
             | jq -r --arg from "$STARTED" --arg to "$ENDED" --arg re "Fixes #$ISSUE([^0-9]|$)" \
               '.[] | select(.createdAt >= $from and .createdAt <= $to and ((.body // "") | test($re))) | .number')
           if [[ $(wc -w <<<"$prs") -ne 1 ]]; then echo "pull requests found: ${prs:-none}; not armed"; exit 0; fi
