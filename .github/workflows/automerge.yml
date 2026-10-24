@@ -1,55 +1,64 @@
 name: automerge
 
-# The agent's fix for a ci-failure issue, armed by agent.yml (label agent-fix and a github-actions comment naming
-# the commit), merges once every check on that commit has passed, CodeQL included. Nothing else is merged here:
-# the author must be the OpenCode app, the branch in this repository, the commit the armed one. Merged with
-# GITHUB_TOKEN, whose pushes start no workflow, so it starts image and release on main itself.
+# Merges the agent's fix for a ci-failure issue once every check on it has passed, CodeQL included. Started only
+# by agent.yml's arm job, with the pull request and the commit (starting a workflow needs actions: write, which the
+# agent's tokens don't have). The author must be the OpenCode app, the branch in this repository, the head still
+# that commit. Merged with GITHUB_TOKEN, whose pushes start no workflow, so it starts image and release on main.
 on:
-  workflow_run:
-    workflows: [image]
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+      sha:
+        description: The commit to merge, the pull request's head when it was armed
+        required: true
 
 permissions:
   contents: write
   pull-requests: write
   actions: write
 
+concurrency:
+  group: automerge-${{ inputs.pr }}
+  cancel-in-progress: false
+
 jobs:
   merge:
-    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      BRANCH: ${{ github.event.workflow_run.head_branch }}
-      SHA: ${{ github.event.workflow_run.head_sha }}
-      HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+      PR: ${{ inputs.pr }}
+      SHA: ${{ inputs.sha }}
     steps:
       - run: |
-          if [[ $HEAD_REPO != "$GH_REPO" ]]; then echo 'from a fork'; exit 0; fi
-          pr=$(gh pr list --head "$BRANCH" --state open --label agent-fix --json number,author,headRefOid \
-            | jq -r --arg sha "$SHA" '.[] | select(.author.login == "app/opencode-agent" and .headRefOid == $sha) | .number')
-          if [[ -z $pr ]]; then echo 'not an armed agent fix'; exit 0; fi
-          if ! gh api "repos/$GH_REPO/issues/$pr/comments" --paginate \
-            --jq '.[] | select(.user.login == "github-actions[bot]") | .body' | grep -qF "Automerge armed for $SHA"; then
-            echo "commit $SHA is not the armed one"
-            exit 0
-          fi
-          # Checked again here, in case the branch changed what it touches
-          files=$(gh pr diff "$pr" --name-only)
+          head() { gh pr view "$PR" --json state,author,isCrossRepository,headRefOid \
+            --jq '"\(.state) \(.author.login) \(.isCrossRepository) \(.headRefOid)"'; }
+          if [[ $(head) != "OPEN app/opencode-agent false $SHA" ]]; then echo "not mergeable here: $(head)"; exit 0; fi
+
+          # Checked again, renamed files under both names
+          files=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
           if grep -qE '^(\.github/|opencode\.json$|smoke/|db/migrations/)' <<<"$files"; then
             echo 'touches CI, the agent, the smoke tests or the migrations'
             exit 0
           fi
-          if ! gh pr checks "$pr" --watch --interval 30; then
-            echo 'a check failed'
-            exit 0
-          fi
+
+          # CI must have run on this commit (its checks show up a little after the pull request), then all pass
+          for _ in $(seq 60); do
+            names=$(gh pr checks "$PR" --json name --jq '.[].name' 2>/dev/null || true)
+            grep -qx build <<<"$names" && grep -qx smoke <<<"$names" && grep -qx transcriber <<<"$names" && break
+            sleep 10
+          done
+          if ! gh pr checks "$PR" --watch --interval 30; then echo 'a check failed'; exit 0; fi
+          if [[ $(head) != "OPEN app/opencode-agent false $SHA" ]]; then echo "changed meanwhile: $(head)"; exit 0; fi
+
           # Like Renovate's updates of what goes into the images: shipped as the next patch version
           if grep -qE '^(api|ingest|db|transcriber)/|^package(-lock)?\.json$' <<<"$files"; then
-            gh pr edit "$pr" --add-label release
+            gh pr edit "$PR" --add-label release
           fi
-          gh pr merge "$pr" --squash --match-head-commit "$SHA" --delete-branch
+          gh pr merge "$PR" --squash --match-head-commit "$SHA" --delete-branch
+          merged=$(gh pr view "$PR" --json mergeCommit --jq .mergeCommit.oid)
           gh workflow run image.yml --ref main
-          gh workflow run release.yml --ref main
+          gh workflow run release.yml --ref main -f sha="$merged"

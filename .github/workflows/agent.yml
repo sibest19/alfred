@@ -4,7 +4,7 @@ name: agent
 # through the OpenCode GitHub App, whose pull requests start CI (unlike ones opened with GITHUB_TOKEN). Started by:
 # - "/oc …" in a comment on an issue or pull request, by the owner or a collaborator
 # - alert.yml, on a new ci-failure issue: it looks for the cause and opens a fix, which merges itself once every
-#   check passes (automerge.yml) unless it touches CI, the agent, the smoke tests or the migrations
+#   check passes (the arm job starts automerge.yml) unless it touches CI, the agent, the smoke tests or the migrations
 # The repository is public: anyone can comment, so a fix that merges itself is written from the issue body (by
 # alert.yml) and the run logs only. A fix asked for with /oc reads the whole thread and waits for a manual merge.
 on:
@@ -39,6 +39,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       started: ${{ steps.start.outputs.at }}
+      ended: ${{ steps.end.outputs.at }}
     steps:
       - id: start
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
@@ -64,9 +65,11 @@ jobs:
             and "Fixes #{0}". If it is not (a GitHub, registry or network outage, a flaky run), change nothing and
             comment on the issue with what you found, using `gh issue comment {0}`.',
             inputs.issue) || '' }}
+      - id: end
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-  # Arms the fix for a ci-failure issue for automerge.yml: the agent-fix label, and a comment with the commit it
-  # applies to (only github-actions can write it; any later push disarms it)
+  # Hands the fix for a ci-failure issue to automerge.yml, with its number and commit. Starting a workflow is the
+  # authorization: the agent's tokens can't (GITHUB_TOKEN has actions: read, the OpenCode app too).
   arm:
     needs: opencode
     if: github.event_name == 'workflow_dispatch'
@@ -74,22 +77,29 @@ jobs:
     permissions:
       pull-requests: write
       issues: write
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       ISSUE: ${{ inputs.issue }}
       STARTED: ${{ needs.opencode.outputs.started }}
+      ENDED: ${{ needs.opencode.outputs.ended }}
     steps:
       - run: |
-          pr=$(gh pr list --author app/opencode-agent --state open --json number,createdAt,body \
-            | jq -r --arg t "$STARTED" --arg i "#$ISSUE" \
-              '[.[] | select(.createdAt >= $t)] | (map(select((.body // "") | contains($i))) + .)[0].number // empty')
-          if [[ -z $pr ]]; then echo 'no pull request opened'; exit 0; fi
-          if gh pr diff "$pr" --name-only | grep -qE '^(\.github/|opencode\.json$|smoke/|db/migrations/)'; then
+          # The pull request this run opened: by the app, during the run, for this issue; none if not exactly one
+          prs=$(gh pr list --author app/opencode-agent --state open --json number,createdAt,body \
+            | jq -r --arg from "$STARTED" --arg to "$ENDED" --arg i "Fixes #$ISSUE" \
+              '.[] | select(.createdAt >= $from and .createdAt <= $to and ((.body // "") | contains($i))) | .number')
+          if [[ $(wc -w <<<"$prs") -ne 1 ]]; then echo "pull requests found: ${prs:-none}; not armed"; exit 0; fi
+          pr=$prs
+          # Renamed files count under both names
+          if gh api "repos/$GH_REPO/pulls/$pr/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)' \
+            | grep -qE '^(\.github/|opencode\.json$|smoke/|db/migrations/)'; then
             gh pr comment "$pr" --body 'This fix touches CI, the agent, the smoke tests or the migrations, so it waits for a manual merge.'
             exit 0
           fi
+          sha=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
           gh label create agent-fix --color 5319E7 --description 'A fix by the agent that merges itself once CI passes' --force
           gh pr edit "$pr" --add-label agent-fix
-          sha=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
-          gh pr comment "$pr" --body "Automerge armed for $sha: merges once every check on it passes. A later commit disarms it."
+          gh workflow run automerge.yml -f pr="$pr" -f sha="$sha"
+          gh pr comment "$pr" --body "Merges itself once every check on $sha passes. A later commit stops that."
