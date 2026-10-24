@@ -50,3 +50,15 @@ jobs:
           echo "$last -> $next"
           gh release create "$next" --target "$SHA" --title "$next" --generate-notes --notes-start-tag "$last"
           gh workflow run image.yml --ref "$next"
+
+  # A failure opens a ci-failure issue and a success closes it (alert.yml)
+  alert:
+    needs: release
+    if: always()
+    permissions:
+      issues: write
+      # to start agent.yml on a new issue
+      actions: write
+    uses: ./.github/workflows/alert.yml
+    with:
+      failed: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

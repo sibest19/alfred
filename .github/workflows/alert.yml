@@ -1,39 +1,37 @@
 name: alert
 
-# A failed run of image or release outside pull requests (the daily smoke test, main, a release tag) opens an
-# issue labeled "ci-failure", so it doesn't go unnoticed, and starts agent.yml on it; later failures comment on it,
-# and the next successful run of the same kind closes it.
+# The last job of image.yml and release.yml. Outside pull requests (the daily smoke test, main, a release tag) a
+# failure opens an issue labeled "ci-failure", so it doesn't go unnoticed, and starts agent.yml on it; later failures
+# comment on it, and the next successful run of the same kind closes it. On pull requests it does nothing (and
+# passes, as the automerge of the agent's fixes wants every check passed).
+# Called rather than started by workflow_run: runs started with GITHUB_TOKEN (image on a release tag, from
+# release.yml; image and release on main, from automerge.yml) start no workflow_run.
 on:
-  workflow_run:
-    workflows: [image, release]
-    types: [completed]
-
-permissions:
-  issues: write
-  # to start agent.yml on a new issue
-  actions: write
-
-concurrency:
-  group: alert-${{ github.event.workflow_run.name }}
-  cancel-in-progress: false
+  workflow_call:
+    inputs:
+      failed:
+        description: Whether a job of the calling run failed or was cancelled
+        type: boolean
+        required: true
 
 jobs:
   alert:
-    if: >-
-      github.event.workflow_run.event != 'pull_request' &&
-      contains(fromJSON('["success", "failure", "timed_out", "startup_failure"]'), github.event.workflow_run.conclusion)
     runs-on: ubuntu-latest
+    concurrency:
+      group: alert-${{ github.workflow }}
+      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      NAME: ${{ github.event.workflow_run.name }}
-      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-      EVENT: ${{ github.event.workflow_run.event }}
-      BRANCH: ${{ github.event.workflow_run.head_branch }}
-      SHA: ${{ github.event.workflow_run.head_sha }}
-      URL: ${{ github.event.workflow_run.html_url }}
+      NAME: ${{ github.workflow }}
+      CONCLUSION: ${{ inputs.failed && 'failure' || 'success' }}
+      EVENT: ${{ github.event_name }}
+      BRANCH: ${{ github.ref_name }}
+      SHA: ${{ github.sha }}
+      URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - run: |
+          if [[ $EVENT == pull_request ]]; then echo 'a pull request: nothing to report'; exit 0; fi
           # Runs on a tag publish images: one issue for all of them, another for main
           if [[ $BRANCH == v* ]]; then where='release tags'; else where=$BRANCH; fi
           title="$NAME failing on $where"
