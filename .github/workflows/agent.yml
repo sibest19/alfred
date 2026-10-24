@@ -1,6 +1,7 @@
 name: agent
 
-# OpenCode (https://opencode.ai/docs/github/) with a model on OpenRouter (secret OPENROUTER_API_KEY). It works
+# OpenCode (https://opencode.ai/docs/github/) with a model on OpenRouter: variable AGENT_MODEL (provider/vendor/model,
+# for the main and the small model, see opencode.json), secret OPENROUTER_API_KEY. It works
 # through this repository's own GitHub App, alfred-github-agent (variable AGENT_APP_CLIENT_ID, secret
 # AGENT_APP_PRIVATE_KEY): contents, pull requests and issues only, so it can't change workflows or secrets, and
 # its pull requests start CI (unlike ones opened with GITHUB_TOKEN). Started by:
@@ -71,8 +72,10 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           # gh in the agent's shell
           GH_TOKEN: ${{ github.token }}
+          # the small model, through opencode.json
+          AGENT_MODEL: ${{ vars.AGENT_MODEL }}
         with:
-          model: openrouter/z-ai/glm-5.3
+          model: ${{ vars.AGENT_MODEL }}
           use_github_token: true
           prompt: >-
             ${{ github.event_name == 'workflow_dispatch' && format('Issue #{0} reports a workflow of this
