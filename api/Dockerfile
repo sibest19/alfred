@@ -1,5 +1,5 @@
 # HTTP API. Build from the repository root: docker build -f api/Dockerfile .
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:8579e5fce559544b50072d05cc5d3b84b6a14d0989ae56c331d9e983a36a21f1 AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY db/package.json db/
@@ -10,7 +10,7 @@ COPY db db
 COPY api api
 RUN npm run build -w @alfred/db -w @alfred/api
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:8579e5fce559544b50072d05cc5d3b84b6a14d0989ae56c331d9e983a36a21f1
 ENV NODE_ENV=production HTTP_PORT=8080
 WORKDIR /app
 COPY package.json package-lock.json ./
