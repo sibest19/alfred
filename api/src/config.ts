@@ -16,4 +16,11 @@ export const config = {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
   transcriberUrl: (process.env.TRANSCRIBER_URL ?? '').replace(/\/+$/, ''),
+  // iCloud Mail (IMAP) and Calendar (CalDAV): the Apple ID and an app-specific password; empty disables both.
+  icloud: {
+    user: process.env.ICLOUD_USER ?? '',
+    password: process.env.ICLOUD_PASSWORD ?? '',
+    // New events go to this calendar unless the request names one; empty means the first calendar.
+    calendar: process.env.ICLOUD_CALENDAR ?? '',
+  },
 };
