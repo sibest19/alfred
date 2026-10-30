@@ -1,6 +1,7 @@
 // HTTP API over the archive and the notes, for an agent (n8n, …) that shouldn't hold database credentials.
 // Its own service and container, so a restart never touches the WhatsApp session.
-// Read-only on the archive and on iCloud Mail; writes notes, reminders and iCloud Calendar events. Every request but /health needs "Authorization: Bearer <API_TOKEN>".
+// Read-only on the archive and on iCloud Mail; writes notes, reminders and iCloud Calendar events. Every request but /health
+// and /openrouter/v1/ (the caller's OpenRouter key passes through) needs "Authorization: Bearer <API_TOKEN>".
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { pino } from 'pino';
@@ -9,6 +10,7 @@ import { chats, contacts, context, messages, stats } from './archive.js';
 import { createEvent, deleteEvent, listEvents, updateEvent } from './calendar.js';
 import { config } from './config.js';
 import { HttpError, readJson, tz, type Query } from './http.js';
+import { openrouter } from './llm.js';
 import { readMail, searchMail } from './mail.js';
 import {
   createNote, deleteNote, mergeNotes, pendingConsolidation, putSummary, recordConsolidation, restoreNote, searchNotes, topics, updateNote,
@@ -72,6 +74,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     await sql`SELECT 1`;
     return send(res, 200, { ok: true });
   }
+  if (url.pathname.startsWith('/openrouter/v1/')) return log.info(await openrouter(req, res, url), 'model call');
   if (!authorized(req)) return send(res, 401, { error: 'missing or wrong bearer token' });
   const path = url.pathname.replace(/\/+$/, '') || '/';
   let methodMismatch = false;

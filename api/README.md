@@ -1,6 +1,6 @@
 # api
 
-Serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials, and the user's iCloud Mail and Calendar. It reads the archive and iCloud Mail, and writes only notes, reminders and calendar events; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` needs `Authorization: Bearer <API_TOKEN>`. Dates without an offset are read and shown in `TZ`.
+Serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials, and the user's iCloud Mail and Calendar. It reads the archive and iCloud Mail, and writes only notes, reminders and calendar events; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` and `/openrouter/v1/` needs `Authorization: Bearer <API_TOKEN>`. Dates without an offset are read and shown in `TZ`.
 
 Give it its own login with the `api_access` role (created by the migrations: read on the archive, write on notes and reminders, nothing on `wa_auth`):
 
@@ -40,6 +40,7 @@ ALTER ROLE assistant_api SET statement_timeout = '15s';
 | `POST /calendar/events` | JSON `title`, `start` (`2026-11-03 18:00`, or a date for an all-day event), `end` (an hour later; for an all-day event its last day), `all_day`, `location`, `notes`, `calendar` (`ICLOUD_CALENDAR`, else the first) |
 | `PATCH /calendar/events/<id>` | the fields to change (empty ones are kept; `-` removes a `location` or `notes`); a new `start` keeps the length. On a repeating event `occurrence` (a date) names the one meant: only that one changes, or with `series=true` all of them, a new start moving every occurrence by as much |
 | `DELETE /calendar/events/<id>` | deletes the event, a whole series; `occurrence` (a date) deletes that occurrence only |
+| `/openrouter/v1/<path>` | forwarded to OpenRouter with the caller's own `Authorization` (its OpenRouter key), for an agent whose model node can't set prompt caching: on `anthropic/` models the system prompt but its last paragraph (put what changes, like the current time, there) is cached for an hour and the conversation up to the latest user message for 5 minutes, and Amazon Bedrock is preferred (Vertex's global endpoint mostly misses the cache). Each call's cached and written tokens are logged |
 | `GET /health` | `200` while the database answers |
 
 Stubs (group events) and undecryptable messages are left out of the message endpoints.
