@@ -48,7 +48,7 @@ async function withMailbox<T>(mailbox: string, fn: (client: ImapFlow) => Promise
   }
 }
 
-// Hide My Email relays a sender as update_at_grafana_com_hfb7rx8fvn1ert_4bwb9705@icloud.com: shown as update@grafana.com
+// Hide My Email relays a sender as news_at_example_com_abc123def456_xyz789@icloud.com: shown as news@example.com
 const RELAY = /^(.+?)_at_(.+)_[a-z0-9]+_[a-z0-9]+@(icloud\.com|privaterelay\.appleid\.com)$/i;
 const unrelay = (addr: string) => addr.replace(RELAY, (_m, user: string, domain: string) => `${user}@${domain.replace(/_/g, '.')}`);
 const address = (list?: MessageAddressObject[]) =>
