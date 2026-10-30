@@ -81,4 +81,14 @@ for path in '/mail?q=smoke' '/mail/read?ids=INBOX:1' /calendar/events; do
   [[ $code == 503 ]] || { echo "FAIL: GET $path -> $code (expected 503)"; exit 1; }
   echo "ok: GET $path -> 503 (iCloud not configured)"
 done
+# the model route marks Claude prompts for caching (the system prompt but its last paragraph, the latest user message)
+dc exec -T api node --input-type=module -e "
+import assert from 'node:assert/strict';
+import { withCache } from './dist/llm.js';
+const b = withCache({ model: 'anthropic/x', messages: [{ role: 'system', content: 'rules\n\nNow: 10:00' }, { role: 'user', content: 'hi' }, { role: 'assistant', content: 'ok' }, { role: 'tool', content: 'r' }] });
+assert.deepEqual(b.messages[0].content.map((p) => [p.text, p.cache_control?.ttl]), [['rules', '1h'], ['\n\nNow: 10:00', undefined]]);
+assert.equal(b.messages[1].content[0].cache_control.type, 'ephemeral');
+assert.equal(typeof withCache({ model: 'z-ai/glm', messages: [{ role: 'system', content: 'a\n\nb' }] }).messages[0].content, 'string');
+"
+echo 'ok: model route cache marks'
 echo 'smoke test passed'
