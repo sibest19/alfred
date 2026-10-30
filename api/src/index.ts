@@ -1,13 +1,15 @@
 // HTTP API over the archive and the notes, for an agent (n8n, …) that shouldn't hold database credentials.
 // Its own service and container, so a restart never touches the WhatsApp session.
-// Read-only on the archive; writes only notes and reminders. Every request but /health needs "Authorization: Bearer <API_TOKEN>".
+// Read-only on the archive and on iCloud Mail; writes notes, reminders and iCloud Calendar events. Every request but /health needs "Authorization: Bearer <API_TOKEN>".
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { pino } from 'pino';
 import { sql } from '@alfred/db';
 import { chats, contacts, context, messages, stats } from './archive.js';
+import { createEvent, deleteEvent, listEvents, updateEvent } from './calendar.js';
 import { config } from './config.js';
 import { HttpError, readJson, tz, type Query } from './http.js';
+import { readMail, searchMail } from './mail.js';
 import {
   createNote, deleteNote, mergeNotes, pendingConsolidation, putSummary, recordConsolidation, restoreNote, searchNotes, topics, updateNote,
 } from './notes.js';
@@ -45,6 +47,12 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/reminders\/(\d+)\/snooze$/, async (r, _q, id) => snoozeReminder(id, await readJson(r))],
   ['POST', /^\/reminders\/(\d+)\/done$/, (_r, _q, id) => doneReminder(id)],
   ['POST', /^\/transcribe$/, (r) => transcribe(r)],
+  ['GET', /^\/mail$/, (_r, q) => searchMail(q)],
+  ['GET', /^\/mail\/read$/, (_r, q) => readMail(q)],
+  ['GET', /^\/calendar\/events$/, (_r, q) => listEvents(q)],
+  ['POST', /^\/calendar\/events$/, async (r) => createEvent(await readJson(r))],
+  ['PATCH', /^\/calendar\/events\/([0-9a-f]{8})$/, async (r, _q, id) => updateEvent(id, await readJson(r))],
+  ['DELETE', /^\/calendar\/events\/([0-9a-f]{8})$/, (_r, q, id) => deleteEvent(id, q)],
 ];
 
 const token = Buffer.from(config.apiToken);
@@ -74,7 +82,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       methodMismatch = true;
       continue;
     }
-    return send(res, method === 'POST' && (path === '/notes' || path === '/consolidations' || path === '/reminders') ? 201 : 200, await handler(req, url.searchParams, m[1] ?? ''));
+    return send(res, method === 'POST' && ['/notes', '/consolidations', '/reminders', '/calendar/events'].includes(path) ? 201 : 200, await handler(req, url.searchParams, m[1] ?? ''));
   }
   send(res, methodMismatch ? 405 : 404, { error: methodMismatch ? 'method not allowed' : 'not found' });
 }

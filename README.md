@@ -5,7 +5,7 @@ The backend of a private assistant: an archive of a WhatsApp account, an HTTP AP
 | Service | | Image |
 |---|---|---|
 | [`ingest/`](ingest) | Links to WhatsApp as a read-only device and archives every message, edit, reaction, chat, contact and media file into Postgres | `ghcr.io/sibest19/alfred-ingest` |
-| [`api/`](api) | Message search, conversation context, counts, chats, contacts, notes, reminders and speech-to-text over HTTP, behind a bearer token | `ghcr.io/sibest19/alfred-api` |
+| [`api/`](api) | Message search, conversation context, counts, chats, contacts, notes, reminders, iCloud Mail and Calendar, and speech-to-text over HTTP, behind a bearer token | `ghcr.io/sibest19/alfred-api` |
 | [`transcriber/`](transcriber) | Speech-to-text (Parakeet Ultra, ONNX) on an Intel GPU or the CPU; voice notes become searchable text | `ghcr.io/sibest19/alfred-transcriber` |
 | [`db/`](db) | Shared Postgres client and the schema migrations (applied by `ingest`) | |
 

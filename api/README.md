@@ -1,6 +1,6 @@
 # api
 
-Serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials. It reads the archive and writes only notes and reminders; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` needs `Authorization: Bearer <API_TOKEN>`. Dates without an offset are read and shown in `TZ`.
+Serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials, and the user's iCloud Mail and Calendar. It reads the archive and iCloud Mail, and writes only notes, reminders and calendar events; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` needs `Authorization: Bearer <API_TOKEN>`. Dates without an offset are read and shown in `TZ`.
 
 Give it its own login with the `api_access` role (created by the migrations: read on the archive, write on notes and reminders, nothing on `wa_auth`):
 
@@ -34,9 +34,17 @@ ALTER ROLE assistant_api SET statement_timeout = '15s';
 | `DELETE /reminders/<id>` | cancels it and the rest of its series |
 | `POST /reminders/due` | for a scheduler: marks every due pending reminder fired and returns them (`late` when more than 5 minutes overdue, `next` for repeating ones); concurrent calls never return the same reminder |
 | `POST /transcribe` | audio body, passed to `TRANSCRIBER_URL` |
+| `GET /mail` | iCloud Mail, newest first: `q` (words in the headers and body), `sender`, `subject`, `unread=true`, `from`/`to` (as for `/messages`), `mailbox` (`INBOX`; a wrong name lists the others), `limit` (20, max 50); each with an `id` like `INBOX:4521` and a snippet |
+| `GET /mail/read` | `ids` (up to 10, comma-separated): the messages in full (body text, recipients, attachment names). Mailboxes are opened read only: nothing is marked as seen |
+| `GET /calendar/events` | iCloud Calendar events of a period, repeating ones expanded into occurrences: `from` (today), `to` (a week later; a bare date includes that day; at most 366 days), `q` (words in the title, place or notes), `calendar` (a name); with the calendars' names |
+| `POST /calendar/events` | JSON `title`, `start` (`2026-11-03 18:00`, or a date for an all-day event), `end` (an hour later; for an all-day event its last day), `all_day`, `location`, `notes`, `calendar` (`ICLOUD_CALENDAR`, else the first) |
+| `PATCH /calendar/events/<id>` | the fields to change (empty ones are kept; `-` removes a `location` or `notes`); a new `start` keeps the length. On a repeating event `occurrence` (a date) names the one meant: only that one changes, or with `series=true` all of them, a new start moving every occurrence by as much |
+| `DELETE /calendar/events/<id>` | deletes the event, a whole series; `occurrence` (a date) deletes that occurrence only |
 | `GET /health` | `200` while the database answers |
 
 Stubs (group events) and undecryptable messages are left out of the message endpoints.
+
+The mail and calendar answers carry `text`, the same as lines for a prompt (an agent's tool can pass on that alone), and errors say what to change. Mail ids are per mailbox and stay valid; calendar event ids are 8 characters and known from a listing or a write since the API started, so after a restart an id asks for the events to be listed again. iCloud takes an [app-specific password](https://support.apple.com/102654), which serves both IMAP and CalDAV; without one the mail and calendar routes answer `503`.
 
 Topics are paths of 1-4 lowercase words (`people/giulia`, `places/restaurants/bergamo`); accents and spaces are folded, and the first word must be one of `NOTE_TOPIC_ROOTS`. A topic has at most one summary (kind `summary`), written with `PUT /notes/summaries`. A consolidation job (an agent run on a schedule) is expected to file notes under topics, merge duplicates and keep the summaries current, and to record each run so the next one only starts when notes changed.
 
@@ -49,5 +57,7 @@ A repeating reminder keeps its wall-clock time across daylight saving changes an
 | `TZ` | `UTC` | Time zone for dates in and out |
 | `TRANSCRIBER_URL` | | Speech-to-text service behind `POST /transcribe` |
 | `NOTE_TOPIC_ROOTS` | `people,places,preferences,home,work,health,projects,ideas,reading,travel,other` | Allowed first level of a note's topic |
+| `ICLOUD_USER`, `ICLOUD_PASSWORD` | | iCloud Mail and Calendar: the Apple ID and an app-specific password; empty disables them |
+| `ICLOUD_CALENDAR` | | Calendar for new events when the request names none (default: the first) |
 | `HTTP_PORT` | `8080` | |
 | `LOG_LEVEL` | `info` | |

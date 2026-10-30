@@ -11,7 +11,14 @@
   },
   "dependencies": {
     "@alfred/db": "0.4.0",
+    "ical.js": "2.2.1",
+    "imapflow": "2.9.1",
+    "mailparser": "3.12.4",
     "pino": "10.4.0",
-    "postgres": "3.4.9"
+    "postgres": "3.4.9",
+    "tsdav": "2.5.0"
+  },
+  "devDependencies": {
+    "@types/mailparser": "3.9.0"
   }
 }
