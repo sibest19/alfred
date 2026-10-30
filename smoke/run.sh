@@ -2,7 +2,7 @@
 # Smoke test of the built images against a fresh Postgres:
 # - ingest applies the migrations and gets a pairing QR from WhatsApp: the handshake a Baileys or
 #   WhatsApp change breaks first (a QR means WhatsApp accepted the client and its version)
-# - the API, with its own api_access login, answers reads and writes
+# - the API, with its own api_access login, answers reads and writes (iCloud's routes: not configured)
 # Images: INGEST_IMAGE and API_IMAGE (default alfred-ingest:smoke, alfred-api:smoke).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -75,4 +75,10 @@ api POST /reminders "{\"text\":\"Smoke\",\"due\":\"$tomorrow\"}"
 api POST /reminders "{\"text\":\"Smoke check\",\"due\":\"$tomorrow\",\"kind\":\"check\"}"
 api GET /reminders
 api GET '/reminders?kind=check'
+# iCloud isn't configured here: its routes answer 503, which still shows the image loads the IMAP and CalDAV libraries
+for path in '/mail?q=smoke' '/mail/read?ids=INBOX:1' /calendar/events; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer smoke-token-0123456789' "http://127.0.0.1:18081$path")
+  [[ $code == 503 ]] || { echo "FAIL: GET $path -> $code (expected 503)"; exit 1; }
+  echo "ok: GET $path -> 503 (iCloud not configured)"
+done
 echo 'smoke test passed'
