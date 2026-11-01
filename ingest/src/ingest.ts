@@ -137,8 +137,8 @@ export function describe(msg: WAMessage): Described {
   const media: MediaInfo | null = kind
     ? {
         kind,
-        mimetype: inner.mimetype ?? null,
-        file_name: inner.fileName ?? null,
+        mimetype: clean(inner.mimetype),
+        file_name: clean(inner.fileName),
         file_length: num(inner.fileLength),
         seconds: inner.seconds ?? null,
         voice_note: type === 'audioMessage' && !!inner.ptt,
