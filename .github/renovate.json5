@@ -51,7 +51,7 @@
       matchPackageNames: ['baileys'],
       minimumReleaseAge: '1 day',
     },
-    // The node the images run
+    // Types of the node the images run: moved by hand with the base image (node:26 in the Dockerfiles)
     {
       matchPackageNames: ['@types/node'],
       matchUpdateTypes: ['major'],
