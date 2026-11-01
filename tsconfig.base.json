@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
     "target": "es2023",
+    "lib": [
+      "es2023",
+      "esnext.temporal"
+    ],
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "strict": true,
