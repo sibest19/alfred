@@ -44,6 +44,24 @@ wait_for 120 'ingest reached WhatsApp pairing' sh -c "curl -s http://127.0.0.1:1
   exit 1
 }
 
+# reminder_next(), the repeat math of reminders: known answers for its tricky cases (Rome changes clocks on
+# 2026-03-29 and 2026-10-25)
+dc exec -T postgres psql -v ON_ERROR_STOP=1 -U assistant -d assistant -q <<'SQL'
+DO $$ BEGIN
+  -- monthly from the 31st: the last day of a shorter month, then back to the 31st (now in summer time)
+  ASSERT reminder_next('2026-01-31 09:00', 'month', 1, NULL, NULL, '2026-02-01 00:00+01', 'Europe/Rome') = '2026-02-28 09:00+01', 'monthly 31st -> Feb 28';
+  ASSERT reminder_next('2026-01-31 09:00', 'month', 1, NULL, NULL, '2026-02-28 09:00+01', 'Europe/Rome') = '2026-03-31 09:00+02', 'monthly 31st -> Mar 31';
+  -- daily at 09:00 stays at 09:00 local across the change back to winter time
+  ASSERT reminder_next('2026-10-20 09:00', 'day', 1, NULL, NULL, '2026-10-24 10:00+02', 'Europe/Rome') = '2026-10-25 09:00+01', 'daily across DST';
+  -- every 2 weeks on Monday and Thursday from Monday 2026-11-02: Nov 2, Nov 5, then Nov 16
+  ASSERT reminder_next('2026-11-02 09:00', 'week', 2, '{1,4}', NULL, '2026-11-02 09:00+01', 'Europe/Rome') = '2026-11-05 09:00+01', 'biweekly -> Thu';
+  ASSERT reminder_next('2026-11-02 09:00', 'week', 2, '{1,4}', NULL, '2026-11-05 09:00+01', 'Europe/Rome') = '2026-11-16 09:00+01', 'biweekly skips a week';
+  -- past until: no next occurrence
+  ASSERT reminder_next('2026-11-02 09:00', 'day', 1, NULL, '2026-11-04 00:00+01', '2026-11-03 09:00+01', 'Europe/Rome') IS NULL, 'until ends it';
+END $$;
+SQL
+echo 'ok: reminder_next'
+
 dc exec -T postgres psql -v ON_ERROR_STOP=1 -U assistant -d assistant -q \
   -c "CREATE ROLE assistant_api LOGIN PASSWORD 'smoke' IN ROLE api_access"
 dc up -d api
@@ -65,11 +83,18 @@ api() {
 api GET '/messages?q=ciao'
 api GET '/messages?after_id=0&limit=5'
 api GET /stats
+api GET '/stats?group_by=day'
 api GET /chats
 api GET '/contacts?q=rossi'
 api POST /notes '{"title":"Smoke","content":"A note from the smoke test","topic":"other"}'
 api GET '/notes?q=smoke'
 api GET /notes/topics
+# twice: the second replaces the first
+api PUT /notes/summaries '{"topic":"other","content":"Smoke summary"}'
+api PUT /notes/summaries '{"topic":"other","content":"Smoke summary, again"}'
+# started_at as the consolidation workflow sends it ($now.toISO())
+api POST /consolidations '{"started_at":"2026-11-01T22:00:00.123+01:00","changes":0}'
+api GET /consolidations/pending
 tomorrow=$(TZ=Europe/Rome date -d '+1 day' '+%Y-%m-%d %H:%M' 2>/dev/null || TZ=Europe/Rome date -v+1d '+%Y-%m-%d %H:%M')
 api POST /reminders "{\"text\":\"Smoke\",\"due\":\"$tomorrow\"}"
 api POST /reminders "{\"text\":\"Smoke check\",\"due\":\"$tomorrow\",\"kind\":\"check\"}"
