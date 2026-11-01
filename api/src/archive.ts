@@ -87,16 +87,18 @@ export async function stats(q: Query) {
 export async function chats(q: Query) {
   const name = param(q, 'q');
   const limit = intParam(q, 'limit', 20, 100);
-  // from the chats table (the name as messages_view gives it), counting messages only for the chats returned
+  // counted from messages (an index-only pass over messages_chat_sent), not chats.last_message_at, which a failed
+  // ingest batch can leave missing; names joined once per chat (as messages_view gives them), not once per message
   const rows = await sql`
-    SELECT x.jid, x.name, x.kind, (SELECT count(*) FROM messages m WHERE m.chat_jid = x.jid)::int AS messages,
-      to_char(x.last_message_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS last_message
+    SELECT x.jid, x.name, x.kind, x.messages, to_char(x.last AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS last_message
     FROM (
-      SELECT c.jid, c.kind, c.last_message_at, coalesce(c.name, cc.name, cc.notify, cc.verified_name, split_part(c.jid, '@', 1)) AS name
-      FROM chats c LEFT JOIN contacts cc ON cc.jid = c.jid WHERE c.last_message_at IS NOT NULL
+      SELECT m.jid, m.messages, m.last, c.kind,
+        coalesce(c.name, cc.name, cc.notify, cc.verified_name, split_part(m.jid, '@', 1)) AS name
+      FROM (SELECT chat_jid AS jid, count(*)::int AS messages, max(sent_at) AS last FROM messages GROUP BY chat_jid) m
+      LEFT JOIN chats c ON c.jid = m.jid LEFT JOIN contacts cc ON cc.jid = m.jid
     ) x
     WHERE ${name ? sql`(x.name ILIKE ${like(name)} OR x.jid LIKE ${like(name)})` : sql`TRUE`}
-    ORDER BY x.last_message_at DESC LIMIT ${limit}`;
+    ORDER BY x.last DESC LIMIT ${limit}`;
   return { count: rows.length, chats: rows };
 }
 

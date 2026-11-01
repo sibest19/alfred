@@ -141,8 +141,9 @@ async def openai_transcriptions(request: Request):
     return {"text": (await run_in_threadpool(transcribe, await body_audio(request)))["text"]}
 
 
+# async: a sync handler would wait for the same thread pool the queued transcriptions hold
 @app.get("/health")
-def health():
+async def health():
     if state["model"] is None:
         raise HTTPException(503, state["error"] or "model is loading")
     return {"model": MODEL_REPO, "quantization": MODEL_QUANTIZATION or "fp32", "device": DEVICE}

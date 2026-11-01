@@ -128,7 +128,8 @@ export async function listReminders(q: Query) {
 const nowLocal = async () => (await sql`SELECT to_char(now() AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI Dy') AS n`)[0].n as string;
 
 async function openReminder(id: string): Promise<Row> {
-  const [r] = await sql`SELECT *, coalesce(series_id, id) AS root FROM reminders WHERE id = ${id}::bigint`;
+  // version: the row version (xmin), which any later write changes
+  const [r] = await sql`SELECT *, coalesce(series_id, id) AS root, xmin::text AS version FROM reminders WHERE id = ${id}::bigint`;
   if (!r) throw new HttpError(404, `no reminder ${id}`);
   if (r.status !== 'pending' && r.status !== 'fired') throw new HttpError(409, `reminder ${id} is already ${r.status}`);
   return r;
@@ -157,10 +158,11 @@ export async function updateReminder(id: string, body: Row) {
     : next && (repeat || due) ? sql`, ${fields(next, due ?? r.due_at)}`
     : sql``;
   const dueSet = due ? sql`, due_at = ${due}, status = 'pending', fired_at = NULL` : sql``;
-  // only if it's still as read: had the scheduler claimed it meanwhile, this would put back the repeat it moved on
+  // only if the row is still the version read: had the scheduler claimed it meanwhile (even if a snooze then made it
+  // pending again), this would put back the repeat the claim moved on to the next occurrence
   const [row] = await sql`
     UPDATE reminders SET text = coalesce(${t}, text), updated_at = now() ${dueSet} ${repeatSet}
-    WHERE id = ${id}::bigint AND status = ${r.status} RETURNING ${columns}`;
+    WHERE id = ${id}::bigint AND xmin = ${r.version}::xid RETURNING ${columns}`;
   if (!row) throw new HttpError(409, `reminder ${id} changed meanwhile (it may have just fired): list it again`);
   return view(row);
 }
