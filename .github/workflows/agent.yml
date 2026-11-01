@@ -5,7 +5,7 @@ name: agent
 # through this repository's own GitHub App, alfred-github-agent (variable AGENT_APP_CLIENT_ID, secret
 # AGENT_APP_PRIVATE_KEY): contents, pull requests and issues only, so it can't change workflows or secrets, and
 # its pull requests start CI (unlike ones opened with GITHUB_TOKEN). Started by:
-# - "/oc …" in a comment on an issue or pull request, by the owner or a collaborator
+# - a comment starting with "/oc" on an issue or pull request, by the owner or a collaborator
 # - alert.yml, on a new ci-failure issue: it looks for the cause and opens a fix, which merges itself once every
 #   check passes (the arm job starts automerge.yml) unless it touches CI, the agent, the smoke tests or the migrations
 # The repository is public: anyone can comment, so a fix that merges itself is written from the issue body (by
@@ -35,7 +35,7 @@ jobs:
   opencode:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      ((contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')) &&
+      ((startsWith(github.event.comment.body, '/oc') || startsWith(github.event.comment.body, '/opencode')) &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 30

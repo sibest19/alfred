@@ -2,7 +2,7 @@
 // reminders (marks them fired) and returns them for sending. A repeating reminder is one row per occurrence: the
 // claim inserts the next occurrence and moves the repeat to it, so snoozing a fired one never shifts the series.
 import { sql } from '@alfred/db';
-import { and, HttpError, intParam, like, oneOf, param, text, timeBound, tz, type Query } from './http.js';
+import { and, DATE, HttpError, intParam, like, OFFSET, oneOf, param, text, timeBound, tz, type Query } from './http.js';
 
 const STATUSES = ['pending', 'fired', 'done', 'cancelled'] as const;
 const KINDS = ['reminder', 'check'] as const;
@@ -10,7 +10,6 @@ const UNITS = { day: 'day', daily: 'day', week: 'week', weekly: 'week', month: '
 const WEEKDAYS = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
 const MAX_TEXT = 500;
 const LATE_MINUTES = 5;
-const DUE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?(Z|[+-]\d{2}:?\d{2})?$/;
 
 const columns = sql`
   id::int AS id, text, to_char(due_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS due,
@@ -36,9 +35,9 @@ function view(r: Row): Row {
 /** A due time: "2026-10-23 15:00" (local) or with an offset; a bare date means 09:00. Must not be in the past. */
 async function dueTime(v: unknown, name = 'due'): Promise<Date> {
   let s = text(v).replace('T', ' ');
-  if (!DUE.test(s)) throw new HttpError(400, `${name} must look like 2026-10-23 15:00 (${tz})`);
+  if (!DATE.test(s)) throw new HttpError(400, `${name} must look like 2026-10-23 15:00 (${tz})`);
   if (s.length === 10) s += ' 09:00';
-  const local = !/(Z|[+-]\d{2}:?\d{2})$/.test(s);
+  const local = !OFFSET.test(s);
   const [{ t, past, now }] = await sql`
     SELECT t, t < now() - interval '1 minute' AS past, to_char(now() AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS now
     FROM (SELECT ${local ? sql`${s}::text::timestamp AT TIME ZONE ${tz}` : sql`${s}::text::timestamptz`} AS t) x`;
@@ -151,15 +150,18 @@ export async function updateReminder(id: string, body: Row) {
     : null;
   const next = repeat === undefined ? current : repeat;
   let due = text(body.due) ? await dueTime(body.due) : null;
-  if (due && next) due = await firstOccurrence(due, next);
+  // a new repeat on given weekdays also moves this occurrence to the first of them
+  if (next && (due || repeat)) due = await firstOccurrence(due ?? r.due_at, next);
   const repeatSet =
     repeat === null ? sql`, repeat_unit = NULL, repeat_anchor = NULL, repeat_days = NULL, repeat_until = NULL`
     : next && (repeat || due) ? sql`, ${fields(next, due ?? r.due_at)}`
     : sql``;
   const dueSet = due ? sql`, due_at = ${due}, status = 'pending', fired_at = NULL` : sql``;
+  // only if it's still as read: had the scheduler claimed it meanwhile, this would put back the repeat it moved on
   const [row] = await sql`
     UPDATE reminders SET text = coalesce(${t}, text), updated_at = now() ${dueSet} ${repeatSet}
-    WHERE id = ${id}::bigint RETURNING ${columns}`;
+    WHERE id = ${id}::bigint AND status = ${r.status} RETURNING ${columns}`;
+  if (!row) throw new HttpError(409, `reminder ${id} changed meanwhile (it may have just fired): list it again`);
   return view(row);
 }
 

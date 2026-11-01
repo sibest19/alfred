@@ -17,6 +17,7 @@ import numpy as np
 import onnx_asr
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from huggingface_hub import snapshot_download
+from starlette.concurrency import run_in_threadpool
 
 MODEL_REPO = os.environ.get("MODEL_REPO", "Masterx/parakeet-tdt-0.6b-ultra-onnx")
 MODEL_TYPE = os.environ.get("MODEL_TYPE", "nemo-parakeet-tdt-0.6b-v3")
@@ -129,14 +130,15 @@ async def body_audio(request: Request) -> bytes:
     return await request.body()
 
 
+# ffmpeg and the model run in a worker thread, so /health still answers during a long transcription
 @app.post("/transcribe")
 async def post_transcribe(request: Request):
-    return transcribe(await body_audio(request))
+    return await run_in_threadpool(transcribe, await body_audio(request))
 
 
 @app.post("/v1/audio/transcriptions")
 async def openai_transcriptions(request: Request):
-    return {"text": transcribe(await body_audio(request))["text"]}
+    return {"text": (await run_in_threadpool(transcribe, await body_audio(request)))["text"]}
 
 
 @app.get("/health")

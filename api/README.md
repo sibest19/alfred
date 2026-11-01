@@ -13,22 +13,22 @@ ALTER ROLE assistant_api SET statement_timeout = '15s';
 |---|---|
 | `GET /messages` | `q` (words, prefix match; `match=any` for OR), `chat` and `sender` (name or JID; `sender=me`), `kind` (`text`, `image`, `video`, `audio`, `document`, `sticker`, `other`), `from`/`to` (`2026-10-01` or `2026-10-01 18:30`; a bare `to` date includes that day), `order` (`desc`), `limit` (30, max 100); `after_id` (for a poller: only messages archived after that id, in archive order, so a late arrival is still new) |
 | `GET /messages/<id>/context` | the conversation around a message: `before`, `after` (10 each, max 50) |
-| `GET /stats` | message counts with the `/messages` filters, `group_by` `chat` \| `sender` \| `day` \| `month` \| `kind` |
+| `GET /stats` | message counts with the `/messages` filters, `group_by` `chat` \| `sender` \| `day` \| `month` \| `kind`: the 100 biggest groups, or the latest 100 days or months; `total` counts them all |
 | `GET /chats` | chats by name (`q`), most recent first |
 | `GET /contacts` | contacts by name or number (`q`), with their phone number |
 | `GET /notes` | `q` (words, a name, a tag or a topic), `tag`, `kind`, `topic` (that topic and everything under it), `archived=true` (also deleted and merged notes, with `merged_into`), `limit` (20, max 500); summaries first, no `q` = latest |
 | `POST /notes` | JSON `title`, `content`, `kind` (`note`, `fact`, `preference`, `idea`, `link`, `todo`), `tags` (array or comma-separated), `topic`, `source` (`user` \| `assistant`) |
-| `PATCH /notes/<id>` | the fields to change; empty ones are kept, tags are replaced |
+| `PATCH /notes/<id>` | the fields to change; empty ones are kept, tags are replaced (`kind` can't become `summary`: see `PUT /notes/summaries`) |
 | `DELETE /notes/<id>` | soft delete (`deleted_at`) |
 | `POST /notes/<id>/restore` | brings back a deleted or merged note; one taken out of a merge shows that note as `kept_apart_from` |
 | `POST /notes/merge` | JSON `ids` and either `into` (an existing note, updated with the fields given) or the fields of a new note; the `ids` are archived with `merged_into` |
 | `GET /notes/topics` | the topic index: each topic with its note count and the start of its summary, and `text`, the same as lines for a prompt |
 | `PUT /notes/summaries` | JSON `topic`, `content` (`title`, `tags`): creates or replaces the topic's summary note |
-| `GET /consolidations/pending` | notes created, changed or deleted since the last recorded consolidation |
-| `POST /consolidations` | JSON `started_at`, `changes`, `report`: records a consolidation run |
+| `GET /consolidations/pending` | notes created, changed or deleted since the last recorded consolidation started (so that run's own changes show up once more) |
+| `POST /consolidations` | JSON `started_at` (ISO; without an offset, in `TZ`), `changes`, `report`: records a consolidation run |
 | `GET /reminders` | `status` (`open`: pending, and fired in the last day; `pending`, `fired`, `done`, `cancelled`, `all`), `q` (words in the text), `kind`, `from`/`to` (due time), `limit` (50, max 200); with `now` |
 | `POST /reminders` | JSON `text`, `due` (`2026-10-23 15:00` in `TZ`, or with an offset; a bare date is 09:00; not in the past), `repeat` (`day`, `week`, `month`, `year`), `every` (1), `days` (weekly: `mo,th`), `until` (a date), `kind` (`reminder`: sent to the user; `check`: for the assistant itself, which the scheduler wakes with it), `source` |
-| `PATCH /reminders/<id>` | `text`, `due` (on a repeating reminder this moves the whole series), `repeat` (`none` stops it after this occurrence), `every`, `days`, `until` |
+| `PATCH /reminders/<id>` | `text`, `due` (on a repeating reminder this moves the whole series), `repeat` (`none` stops it after this occurrence), `every`, `days` (a new repeat on weekdays also moves this occurrence to the first of them), `until`; `409` if it fired meanwhile |
 | `POST /reminders/<id>/snooze` | JSON `minutes` (60) or `until`: moves this occurrence only; a fired reminder becomes pending again |
 | `POST /reminders/<id>/done` | marks it done; on a pending repeating reminder this skips the occurrence and returns the `next` |
 | `DELETE /reminders/<id>` | cancels it and the rest of its series |
