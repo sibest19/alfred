@@ -39,13 +39,15 @@ export function oneOf<T extends string>(value: string | undefined, allowed: read
   return value as T;
 }
 
-const DATE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?(Z|[+-]\d{2}:?\d{2})?$/;
+export const DATE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?(Z|[+-]\d{2}:?\d{2})?$/;
+/** A date-time that ends with an offset; one without is in the API's time zone. */
+export const OFFSET = /(Z|[+-]\d{2}:?\d{2})$/;
 
 /** A date or date-time; without an offset it's in the API's time zone. A bare date as `to` includes that day. */
 export function timeBound(value: string | undefined, name: string, end: boolean): Fragment | undefined {
   if (value === undefined) return undefined;
   if (!DATE.test(value)) throw new HttpError(400, `${name} must look like 2026-10-01 or 2026-10-01 18:30`);
-  const local = !/(Z|[+-]\d{2}:?\d{2})$/.test(value);
+  const local = !OFFSET.test(value);
   // through text: a parameter typed timestamp goes through a JS Date, which reads it in the process's zone
   const t = local ? sql`(${value}::text::timestamp AT TIME ZONE ${tz})` : sql`${value}::text::timestamptz`;
   return end && value.length === 10 ? sql`${t} + interval '1 day'` : t;

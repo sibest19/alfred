@@ -3,7 +3,7 @@
 // into another stay in the table, archived with merged_into, so every merge can be undone.
 import { sql } from '@alfred/db';
 import { config } from './config.js';
-import { and, HttpError, intParam, like, oneOf, param, text, tags, tsQuery, tz, type Query } from './http.js';
+import { and, HttpError, intParam, like, OFFSET, oneOf, param, text, tags, tsQuery, tz, type Query } from './http.js';
 
 const NOTE_KINDS = ['note', 'fact', 'preference', 'idea', 'link', 'todo', 'summary'] as const;
 const NOTE_SOURCES = ['user', 'assistant'] as const;
@@ -33,6 +33,11 @@ const noteColumns = sql`
   id::int AS id, kind, topic, title, content, tags, source, unmerged_from::int AS kept_apart_from,
   to_char(created_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS created, to_char(updated_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS updated`;
 const archivedColumns = sql`, deleted_at IS NOT NULL AS archived, merged_into::int AS merged_into`;
+
+/** A write that would give a topic a second summary (notes_one_summary_per_topic) is a 409 the agent can act on. */
+const summaryTaken = (err: any): never => {
+  throw err?.code === '23505' ? new HttpError(409, 'that topic already has a summary: delete or merge it first') : err;
+};
 
 const underTopic = (t: string) => sql`(topic = ${t} OR topic LIKE ${t.replace(/[\\%_]/g, (c) => `\\${c}`) + '/%'})`;
 
@@ -80,13 +85,14 @@ export async function updateNote(id: string, body: Record<string, unknown>, db: 
   const title = text(body.title) || null;
   const content = text(body.content) || null;
   const kind = oneOf(text(body.kind) || undefined, NOTE_KINDS, 'kind') ?? null;
+  if (kind === 'summary') throw new HttpError(400, 'write summaries with PUT /notes/summaries');
   const newTopic = topic(body.topic);
   // absent or empty keeps the tags; to clear them, send []
   const newTags = body.tags === undefined || text(body.tags) === '' ? null : tags(body.tags);
   const [note] = await db`
     UPDATE notes SET title = coalesce(${title}, title), content = coalesce(${content}, content), kind = coalesce(${kind}, kind),
       topic = coalesce(${newTopic}, topic), tags = coalesce(${newTags}::text[], tags), updated_at = now()
-    WHERE id = ${id}::bigint AND deleted_at IS NULL RETURNING ${noteColumns}`;
+    WHERE id = ${id}::bigint AND deleted_at IS NULL RETURNING ${noteColumns}`.catch(summaryTaken);
   if (!note) throw new HttpError(404, `no note ${id}`);
   return note;
 }
@@ -99,16 +105,11 @@ export async function deleteNote(id: string) {
 
 /** Brings back a deleted or merged note; one taken out of a merge keeps the id of that note in kept_apart_from. */
 export async function restoreNote(id: string) {
-  try {
-    const [note] = await sql`
-      UPDATE notes SET deleted_at = NULL, unmerged_from = coalesce(merged_into, unmerged_from), merged_into = NULL, updated_at = now()
-      WHERE id = ${id}::bigint AND deleted_at IS NOT NULL RETURNING ${noteColumns}`;
-    if (!note) throw new HttpError(404, `no deleted or merged note ${id}`);
-    return { restored: note };
-  } catch (err: any) {
-    if (err?.code === '23505') throw new HttpError(409, 'that topic already has a summary: delete or merge it first');
-    throw err;
-  }
+  const [note] = await sql`
+    UPDATE notes SET deleted_at = NULL, unmerged_from = coalesce(merged_into, unmerged_from), merged_into = NULL, updated_at = now()
+    WHERE id = ${id}::bigint AND deleted_at IS NOT NULL RETURNING ${noteColumns}`.catch(summaryTaken);
+  if (!note) throw new HttpError(404, `no deleted or merged note ${id}`);
+  return { restored: note };
 }
 
 /**
@@ -150,15 +151,14 @@ export async function putSummary(body: Record<string, unknown>) {
   const content = text(body.content);
   if (!t || !content) throw new HttpError(400, 'topic and content are required');
   const title = text(body.title) || t;
-  const [updated] = await sql`
-    UPDATE notes SET title = ${title}, content = ${content}, tags = coalesce(${body.tags === undefined ? null : tags(body.tags)}::text[], tags),
-      updated_at = now()
-    WHERE kind = 'summary' AND topic = ${t} AND deleted_at IS NULL RETURNING ${noteColumns}`;
-  if (updated) return updated;
-  const [created] = await sql`
+  // one statement, so two writes of a new topic's summary at once both land on the same row
+  const [note] = await sql`
     INSERT INTO notes (kind, topic, title, content, tags, source) VALUES ('summary', ${t}, ${title}, ${content}, ${tags(body.tags)}, 'assistant')
+    ON CONFLICT (topic) WHERE kind = 'summary' AND deleted_at IS NULL DO UPDATE SET
+      title = EXCLUDED.title, content = EXCLUDED.content, tags = ${body.tags === undefined ? sql`notes.tags` : sql`EXCLUDED.tags`},
+      updated_at = now()
     RETURNING ${noteColumns}`;
-  return created;
+  return note;
 }
 
 /** The topic index: every topic with its note count and the start of its summary, plus a text rendering for prompts. */
@@ -177,16 +177,19 @@ export async function topics() {
 
 // --- consolidation runs ---
 
-/** What changed since the last consolidation finished: notes created, updated or deleted after it. */
+/**
+ * What changed since the last consolidation started: notes created, updated or deleted after that. From its start,
+ * not its end, so a note saved while it ran isn't skipped; the next run also sees that run's own changes.
+ */
 export async function pendingConsolidation() {
-  const [last] = await sql`SELECT finished_at FROM consolidations ORDER BY finished_at DESC LIMIT 1`;
-  const since = last?.finished_at ?? null;
-  const rows = since
-    ? await sql`SELECT id::int AS id FROM notes WHERE greatest(created_at, updated_at, coalesce(deleted_at, created_at)) > ${since} ORDER BY id`
-    : await sql`SELECT id::int AS id FROM notes ORDER BY id`;
+  const [last] = await sql`
+    SELECT started_at, to_char(started_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS since FROM consolidations ORDER BY finished_at DESC LIMIT 1`;
+  const rows = await sql`
+    SELECT id::int AS id FROM notes
+    WHERE ${last ? sql`greatest(created_at, updated_at, coalesce(deleted_at, created_at)) > ${last.started_at}` : sql`TRUE`} ORDER BY id`;
   const [{ active }] = await sql`SELECT count(*)::int AS active FROM notes WHERE deleted_at IS NULL`;
   return {
-    since: since && (await sql`SELECT to_char(${since}::timestamptz AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS t`)[0].t,
+    since: last?.since ?? null,
     changed: rows.length,
     changed_ids: rows.map((r) => r.id),
     active_notes: active,
@@ -196,9 +199,10 @@ export async function pendingConsolidation() {
 export async function recordConsolidation(body: Record<string, unknown>) {
   const started = text(body.started_at);
   if (!started || Number.isNaN(Date.parse(started))) throw new HttpError(400, 'started_at must be an ISO date-time');
+  const startedAt = OFFSET.test(started) ? sql`${started}::text::timestamptz` : sql`(${started}::text::timestamp AT TIME ZONE ${tz})`;
   const changes = Number.parseInt(text(body.changes) || '0', 10);
   const [run] = await sql`
-    INSERT INTO consolidations (started_at, changes, report) VALUES (${started}::timestamptz, ${Number.isInteger(changes) ? changes : 0}, ${text(body.report) || null})
+    INSERT INTO consolidations (started_at, changes, report) VALUES (${startedAt}, ${Number.isInteger(changes) ? changes : 0}, ${text(body.report) || null})
     RETURNING id::int AS id, to_char(finished_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS finished`;
   return run;
 }

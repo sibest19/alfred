@@ -73,23 +73,30 @@ export async function stats(q: Query) {
     kind: kindExpr,
   }[by!];
   const chronological = by === 'day' || by === 'month';
+  // the latest 100 days or months (the biggest 100 groups otherwise); total counts every group, not only those
   const rows = await sql`
     SELECT ${key} AS key, count(*)::int AS messages,
-      to_char(min(v.sent_at) AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS first, to_char(max(v.sent_at) AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS last
+      to_char(min(v.sent_at) AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS first, to_char(max(v.sent_at) AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS last,
+      sum(count(*)) OVER ()::int AS total
     FROM messages_view v WHERE ${messageFilters(q)}
-    GROUP BY 1 ORDER BY ${chronological ? sql`1` : sql`2 DESC, 1`} LIMIT 100`;
-  return { group_by: by, total: rows.reduce((n, r) => n + r.messages, 0), groups: rows };
+    GROUP BY 1 ORDER BY ${chronological ? sql`1 DESC` : sql`2 DESC, 1`} LIMIT 100`;
+  const groups = rows.map(({ total, ...g }) => g);
+  return { group_by: by, total: rows[0]?.total ?? 0, groups: chronological ? groups.reverse() : groups };
 }
 
 export async function chats(q: Query) {
   const name = param(q, 'q');
   const limit = intParam(q, 'limit', 20, 100);
+  // from the chats table (the name as messages_view gives it), counting messages only for the chats returned
   const rows = await sql`
-    SELECT v.chat_jid AS jid, max(v.chat_name) AS name, max(v.chat_kind) AS kind, count(*)::int AS messages,
-      to_char(max(v.sent_at) AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS last_message
-    FROM messages_view v
-    WHERE ${name ? sql`(v.chat_name ILIKE ${like(name)} OR v.chat_jid LIKE ${like(name)})` : sql`TRUE`}
-    GROUP BY v.chat_jid ORDER BY max(v.sent_at) DESC LIMIT ${limit}`;
+    SELECT x.jid, x.name, x.kind, (SELECT count(*) FROM messages m WHERE m.chat_jid = x.jid)::int AS messages,
+      to_char(x.last_message_at AT TIME ZONE ${tz}, 'YYYY-MM-DD HH24:MI') AS last_message
+    FROM (
+      SELECT c.jid, c.kind, c.last_message_at, coalesce(c.name, cc.name, cc.notify, cc.verified_name, split_part(c.jid, '@', 1)) AS name
+      FROM chats c LEFT JOIN contacts cc ON cc.jid = c.jid WHERE c.last_message_at IS NOT NULL
+    ) x
+    WHERE ${name ? sql`(x.name ILIKE ${like(name)} OR x.jid LIKE ${like(name)})` : sql`TRUE`}
+    ORDER BY x.last_message_at DESC LIMIT ${limit}`;
   return { count: rows.length, chats: rows };
 }
 
