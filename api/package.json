@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc -p .",
     "typecheck": "tsc -p . --noEmit",
+    "test": "TZ=Europe/Rome node --test dist/*.test.js",
     "start": "node dist/index.js"
   },
   "dependencies": {

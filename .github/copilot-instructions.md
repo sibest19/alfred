@@ -20,7 +20,7 @@ alfred is the backend of a private assistant: `ingest` archives a WhatsApp accou
 
 ## Code style
 
-- TypeScript in strict mode, ES modules (`nodenext`, imports end in `.js`), Node 26, npm workspaces. `npm run build` and `npm run typecheck` must pass.
+- TypeScript in strict mode, ES modules (`nodenext`, imports end in `.js`), Node 26, npm workspaces. `npm run build`, `npm run typecheck` and `npm test` (unit tests, `node:test`) must pass.
 - Comments are short and say why, not what. Match the density and tone of the surrounding code.
 - Small, direct code over new abstractions or dependencies. There is no linter or formatter: don't comment on formatting.
 - Commit subjects follow Conventional Commits with the service as scope: `feat(api): …`, `fix(ingest): …`.
