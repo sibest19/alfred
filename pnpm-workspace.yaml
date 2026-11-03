@@ -1,0 +1,8 @@
+packages:
+  - db
+  - ingest
+  - api
+
+allowBuilds:
+  baileys: true
+  protobufjs: true

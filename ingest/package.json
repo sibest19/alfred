@@ -10,7 +10,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@alfred/db": "0.4.0",
+    "@alfred/db": "workspace:0.4.0",
     "@prometheus-io/client": "0.16.1",
     "baileys": "7.0.0-rc14",
     "pino": "10.4.0",
@@ -18,5 +18,8 @@
   },
   "devDependencies": {
     "@types/qrcode-terminal": "0.12.2"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

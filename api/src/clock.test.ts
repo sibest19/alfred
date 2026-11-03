@@ -1,6 +1,6 @@
 // The clock against answers recorded from its previous implementation (Intl.DateTimeFormat arithmetic): both daylight
 // saving changes in Rome and New York, a half-hour zone (Kolkata), a 30-minute daylight saving shift (Lord Howe), year
-// ends and leap years. Run with TZ=Europe/Rome (npm test), the zone `when` reads dates in.
+// ends and leap years. Run with TZ=Europe/Rome (pnpm test), the zone `when` reads dates in.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { day, dayAfter, fromWall, wall, wallMs, weekday, when } from './clock.js';
