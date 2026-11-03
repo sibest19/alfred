@@ -1,5 +1,7 @@
 # alfred
 
+<img src="docs/alfred.png" alt="Illustrated portrait of Alfred" width="200">
+
 The backend of a private assistant: an archive of a WhatsApp account, an HTTP API over it with notes and reminders, and local speech-to-text. An agent (an n8n workflow, here) talks to the API only and never holds database credentials.
 
 | Service | | Image |
