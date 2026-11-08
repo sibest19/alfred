@@ -46,6 +46,12 @@
       matchUpdateTypes: ['digest'],
       schedule: ['before 6am on monday'],
     },
+    // shortcut: allow missing action digest timestamps until renovatebot/renovate#45236 is fixed.
+    {
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['digest'],
+      minimumReleaseAgeBehaviour: 'timestamp-optional',
+    },
     // Baileys follows WhatsApp's changes, so its fixes are wanted soon; the smoke test checks the handshake
     {
       matchPackageNames: ['baileys'],
