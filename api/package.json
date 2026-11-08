@@ -16,7 +16,7 @@
     "imapflow": "2.10.2",
     "mailparser": "3.14.2",
     "pino": "10.4.0",
-    "postgres": "3.4.9",
+    "postgres": "4.0.0",
     "tsdav": "2.5.0"
   },
   "devDependencies": {
