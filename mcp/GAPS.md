@@ -1,12 +1,12 @@
 # MCP gaps and deployment gates
 
 Tracked after reviewing the [MCP best-practices checklist](https://modelcontextprotocol.info/docs/best-practices/), 2026-11-11.
-Current adapter: dedicated private bearer token, read-only archive scope, no production deployment.
+Current adapter: dedicated private bearer token (MCP-02, intentional for a single internal client), read-only archive scope.
 
 | ID | Status | Gap | Acceptance evidence needed |
 |---|---|---|---|
 | MCP-01 | Closed in preparation | Per-process authenticated request and upstream concurrency limits | `src/server.test.ts`: rate-window refusal/recovery and blocked concurrent upstream calls/recovery. Defaults 60/minute, four concurrent; HTTP 429 + Retry-After |
-| MCP-02 | Open | Static token instead of standard HTTP OAuth authorization | Decide the production auth model; if OAuth, implement resource discovery, issuer/audience/expiry validation and scope challenges, with tests. Document any intentional private-service deviation; do not call it OAuth compliant |
+| MCP-02 | Closed: intentional deviation | Static bearer token instead of standard HTTP OAuth authorization | Decision: the adapter is a private service reachable only from an internal container network, with one known client (Hermes). It keeps one static bearer token (`MCP_TOKEN`, at least 16 bytes, distinct from its API credential, compared in constant time) and is **not** OAuth compliant. Revisit before exposing it beyond that network or to more than one client: then implement resource discovery, issuer/audience/expiry validation and scope challenges, with tests |
 | MCP-03 | Closed in preparation | Committed 2026-07-28 regression coverage | `src/server.test.ts`: discovery, missing/mismatched headers, unsupported version, unknown RPC/tool, invalid input, no session header and GET/DELETE rejection |
 | MCP-04 | Closed in preparation | Actionable, sanitized upstream tool errors | `src/server.test.ts`: validation, authentication, permission, missing-message, throttling, availability, redirects, oversized/invalid replies and secret redaction |
 
