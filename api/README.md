@@ -1,6 +1,42 @@
 # api
 
-Serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials, and the user's iCloud Mail and Calendar. It reads the archive and iCloud Mail, and writes only notes, reminders and calendar events; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` and `/openrouter/v1/` needs `Authorization: Bearer <API_TOKEN>`. Dates without an offset are read and shown in `TZ`.
+Serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials, and the user's iCloud Mail and Calendar. It reads the archive and iCloud Mail, and writes only notes, reminders and calendar events; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` and `/openrouter/v1/` needs a bearer credential. The existing `API_TOKEN` retains full API access; optional scoped tokens restrict new callers. Dates without an offset are read and shown in `TZ`.
+
+## Scoped credentials
+
+Set `API_SCOPED_TOKENS` to a JSON object of named credentials, for example:
+
+```json
+{"hermes":{"token":"replace-with-a-unique-random-secret","scopes":["archive.read"]}}
+```
+
+Generate a distinct random secret for every caller, store it outside Git, and send
+it as `Authorization: Bearer <token>`. Names are configuration labels, not secrets
+or permissions. Invalid/duplicate tokens and unknown scopes prevent startup;
+missing/wrong credentials return `401`, insufficient scope returns `403` before
+the handler runs. Omit the variable to preserve existing n8n behavior. API tokens
+are rejected on `/openrouter/v1/` rather than forwarded to OpenRouter; that route
+still takes the caller's own OpenRouter key.
+
+| Scope | Operations |
+|---|---|
+| `archive.read` | GET messages, message context, stats, chats and contacts |
+| `notes.read` | GET notes and topic index |
+| `notes.write` | Create, update and restore notes |
+| `notes.delete` | Soft-delete notes |
+| `notes.consolidate` | Merge notes, write summaries, inspect/record consolidations |
+| `reminders.read` | List reminders |
+| `reminders.manage` | Create, change, cancel, snooze and finish reminders |
+| `reminders.claim` | Claim due reminders; scheduler only |
+| `mail.read` | Search/read iCloud mail |
+| `calendar.read` | List calendar events |
+| `calendar.create`, `calendar.update`, `calendar.delete` | The corresponding calendar write |
+| `audio.transcribe` | Transcribe uploaded audio |
+
+Every registered API route must declare a scope. These are operation permissions,
+not per-chat/account restrictions or user approvals. Keep a future Hermes pilot
+at `archive.read` until origin policy and write approvals are implemented. The
+legacy full-access token must not be given to Hermes.
 
 Give it its own login with the `api_access` role (created by the migrations: read on the archive, write on notes and reminders, nothing on `wa_auth`):
 
@@ -54,7 +90,8 @@ A repeating reminder keeps its wall-clock time across daylight saving changes an
 | Variable | Default | |
 |---|---|---|
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | | Postgres, as the login above |
-| `API_TOKEN` | | Bearer token, 16 characters or more (required) |
+| `API_TOKEN` | | Legacy full-access bearer token, 16 bytes or more (required) |
+| `API_SCOPED_TOKENS` | `{}` | Named token/scope credentials as JSON (each token at least 16 bytes, no whitespace) |
 | `TZ` | `UTC` | Time zone for dates in and out |
 | `TRANSCRIBER_URL` | | Speech-to-text service behind `POST /transcribe` |
 | `NOTE_TOPIC_ROOTS` | `people,places,preferences,home,work,health,projects,ideas,reading,travel,other` | Allowed first level of a note's topic |

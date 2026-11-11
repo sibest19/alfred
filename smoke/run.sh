@@ -86,6 +86,31 @@ api GET /stats
 api GET '/stats?group_by=day'
 api GET /chats
 api GET '/contacts?q=rossi'
+# Permission checks use real HTTP routes, before any handler can read or modify data.
+expect_status() {
+  local expected=$1 method=$2 path=$3 token=$4 code
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X "$method" -H "Authorization: Bearer $token" "http://127.0.0.1:18081$path")
+  [[ $code == "$expected" ]] || { echo "FAIL: $method $path -> $code (expected $expected)"; exit 1; }
+  echo "ok: permission $method $path -> $code"
+}
+for path in /messages /stats /chats '/contacts?q=rossi'; do
+  expect_status 200 GET "$path" smoke-reader-0123456789
+done
+expect_status 401 GET /messages wrong-token
+for path in /notes /notes/topics /consolidations/pending /reminders /mail /mail/read /calendar/events; do
+  expect_status 403 GET "$path" smoke-reader-0123456789
+done
+for path in /notes /notes/1/restore /notes/merge /consolidations /reminders /reminders/due /reminders/1/snooze /reminders/1/done /calendar/events /transcribe; do
+  expect_status 403 POST "$path" smoke-reader-0123456789
+done
+for path in /notes/1 /reminders/1 /calendar/events/01234567; do
+  expect_status 403 PATCH "$path" smoke-reader-0123456789
+  expect_status 403 DELETE "$path" smoke-reader-0123456789
+done
+expect_status 403 PUT /notes/summaries smoke-reader-0123456789
+# API credentials must never be forwarded to an external model provider.
+expect_status 403 POST /openrouter/v1/chat/completions smoke-reader-0123456789
+expect_status 403 POST /openrouter/v1/chat/completions smoke-token-0123456789
 api POST /notes '{"title":"Smoke","content":"A note from the smoke test","topic":"other"}'
 api GET '/notes?q=smoke'
 api GET /notes/topics

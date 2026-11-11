@@ -37,5 +37,6 @@ services:
       PGPASSWORD: smoke
       PGDATABASE: assistant
       API_TOKEN: smoke-token-0123456789
+      API_SCOPED_TOKENS: '{"hermes":{"token":"smoke-reader-0123456789","scopes":["archive.read"]}}'
     ports:
       - 127.0.0.1:18081:8080

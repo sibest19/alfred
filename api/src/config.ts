@@ -5,8 +5,9 @@ if (!Number.isFinite(port)) throw new Error(`HTTP_PORT must be an integer, got "
 export const config = {
   logLevel: process.env.LOG_LEVEL ?? 'info',
   httpPort: port,
-  // The bearer token every request but /health must carry.
+  // Legacy bearer token with full API access; scoped credentials are opt-in.
   apiToken: process.env.API_TOKEN ?? '',
+  apiScopedTokens: process.env.API_SCOPED_TOKENS ?? '{}',
   // Dates without an offset are read, and all dates shown, in this zone.
   timezone: process.env.TZ || 'UTC',
   // Speech-to-text service behind POST /transcribe; empty disables it.
