@@ -11,7 +11,7 @@ The backend of a private assistant: an archive of a WhatsApp account, an HTTP AP
 | [`transcriber/`](transcriber) | Speech-to-text (Parakeet Ultra, ONNX) on an Intel GPU or the CPU; voice notes become searchable text | `ghcr.io/sibest19/alfred-transcriber` |
 | [`db/`](db) | Shared Postgres client and the schema migrations (applied by `ingest`) | |
 | [`mcp/`](mcp) | Scoped read-only WhatsApp tools for Hermes and other MCP clients, over the HTTP API | `ghcr.io/sibest19/alfred-mcp` |
-| [`hermes/`](hermes) | Hermes Agent with the pinned Honcho memory provider, ready for a read-only root and any UID | `ghcr.io/sibest19/alfred-hermes` |
+| [`hermes/`](hermes) | Hermes Agent with the pinned Honcho memory provider, its entrypoint is the Hermes CLI (not s6), so it runs as any UID with a read-only root | `ghcr.io/sibest19/alfred-hermes` |
 
 ```
 WhatsApp ── ingest ──▶ Postgres ◀── api ◀── agent (n8n, …)
