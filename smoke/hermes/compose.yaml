@@ -1,0 +1,120 @@
+# Local-only trial. No production data, credentials, host ports or shared networks.
+services:
+  postgres:
+    image: docker.io/pgvector/pgvector:pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    environment:
+      POSTGRES_USER: assistant
+      POSTGRES_PASSWORD: trial-db-password
+      POSTGRES_DB: assistant
+    tmpfs:
+      - /var/lib/postgresql
+    networks: [database]
+    healthcheck:
+      test: [CMD, pg_isready, -U, assistant, -d, assistant]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+  migrate:
+    image: ${INGEST_IMAGE:-alfred-ingest:smoke}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: assistant
+      PGPASSWORD: trial-db-password
+      PGDATABASE: assistant
+    command: [node, --input-type=module, -e, "import {migrate,sql} from '@alfred/db'; await migrate({info(){}}); await sql.end();"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [database]
+  seed:
+    image: docker.io/pgvector/pgvector:pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: trial-db-password
+    entrypoint: [psql, -X, -v, ON_ERROR_STOP=1, -h, postgres, -U, assistant, -d, assistant, -f, /trial/seed.sql]
+    volumes:
+      - ./seed.sql:/trial/seed.sql:ro
+    networks: [database]
+  api:
+    image: ${API_IMAGE:-alfred-api:permissions-test}
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    environment:
+      TZ: Europe/Rome
+      PGHOST: postgres
+      PGUSER: assistant_api
+      PGPASSWORD: trial-api-db-password
+      PGDATABASE: assistant
+      API_TOKEN: trial-legacy-api-0123456789
+      API_SCOPED_TOKENS: '{"hermes":{"token":"trial-archive-only-0123456789","scopes":["archive.read"]}}'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [database, api]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+  mcp:
+    image: ${MCP_IMAGE:-alfred-mcp:smoke}
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      ALFRED_API_URL: http://api:8080
+      ALFRED_API_TOKEN: trial-archive-only-0123456789
+      MCP_TOKEN: trial-mcp-client-0123456789
+      MCP_ALLOWED_HOSTS: mcp,localhost,127.0.0.1
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 256m
+    networks: [api, hermes]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+  hermes:
+    image: nousresearch/hermes-agent@sha256:276d44685c65c0cb2a25f190b63c65c8906f9dc76486fb1c05ae71b5826bda08
+    depends_on:
+      mcp:
+        condition: service_healthy
+    user: 10000:10000
+    init: true
+    entrypoint: [/bin/bash, /trial/check.sh]
+    working_dir: /opt/hermes
+    environment:
+      HOME: /opt/data
+      HERMES_HOME: /opt/data
+      ALFRED_MCP_TOKEN: trial-mcp-client-0123456789
+      UV_CACHE_DIR: /tmp/uv
+      UV_OFFLINE: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,size=64m,mode=1777
+      - /opt/data:rw,size=64m,uid=10000,gid=10000,mode=0700
+    volumes:
+      - ./check.sh:/trial/check.sh:ro
+      - ./config.yaml:/trial/config.yaml:ro
+    pids_limit: 128
+    mem_limit: 1g
+    networks: [hermes]
+networks:
+  database:
+    internal: true
+  api:
+    internal: true
+  hermes:
+    internal: true

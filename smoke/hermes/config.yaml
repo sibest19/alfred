@@ -1,0 +1,14 @@
+mcp_servers:
+  whatsapp:
+    url: http://mcp:8080/mcp
+    headers:
+      Authorization: "Bearer ${ALFRED_MCP_TOKEN}"
+    trust: untrusted
+    timeout: 15
+    tools:
+      include:
+        - whatsapp_search
+        - whatsapp_context
+        - whatsapp_stats
+        - whatsapp_find_chat
+        - whatsapp_find_contact

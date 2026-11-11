@@ -57,3 +57,7 @@ adding allowed/denied tests. Read-only annotations do not replace authorization.
 
 Protocol serving uses the [official SDK HTTP handler](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/http.md),
 with per-request server instances, bearer authentication and Host/Origin guards.
+
+Known [MCP gaps and deployment gates](GAPS.md) are tracked explicitly. A repeatable
+[isolated Hermes trial](../smoke/hermes/README.md) exercises this adapter with
+synthetic data and Hermes's own discovery/dispatch code, without model calls.

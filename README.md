@@ -22,6 +22,10 @@ All four images are tagged with the release version (`v0.4.0` → `0.4.0`). A co
 
 ## Development
 
+The [isolated Hermes trial](smoke/hermes/README.md) verifies the MCP adapter using
+Hermes's own runtime and synthetic messages; [remaining MCP gaps](mcp/GAPS.md)
+stay open until their acceptance checks pass.
+
 Node 26, pnpm as pinned in `package.json`, TypeScript, pnpm workspaces (`db`, `ingest`, `api`, `mcp`): `pnpm install --frozen-lockfile && pnpm build && pnpm typecheck && pnpm test`, then `node ingest/dist/index.js` or `node api/dist/index.js` with the `PG*` variables set. The transcriber is Python (`transcriber/requirements.txt`). Images build from the repository root (`docker build -f ingest/Dockerfile .`; the transcriber from `transcriber/`). Pushing a `v*` tag publishes all four. See [`mcp/`](mcp) for its configuration, container isolation and tests.
 
 CI (`.github/workflows/image.yml`) builds, then runs [`smoke/run.sh`](smoke/run.sh) on the ingest and API images: a fresh Postgres, ingest up to WhatsApp's pairing QR (the handshake a Baileys or WhatsApp change breaks first), the API's reads and writes. It also runs daily on `main`, since WhatsApp can break the current Baileys with no change here. [`smoke/transcriber.sh`](smoke/transcriber.sh) runs the transcriber image on the CPU (CI has no Intel GPU) and checks that a spoken sentence comes back as text. A failure outside pull requests (the daily run, `main`, a release) opens a `ci-failure` issue (`alert.yml`), closed by the next successful run, and starts an agent on it (`agent.yml`: [OpenCode](https://opencode.ai/docs/github/) with a model on OpenRouter set by the repository variable `AGENT_MODEL`, through its own GitHub App, which can't change workflows or secrets) that opens a fix, merged once every check passes (`automerge.yml`, started by the agent workflow only) unless it touches CI, the agent, the smoke tests or the migrations. A comment by a collaborator starting with `/oc` starts it on any issue or pull request; those fixes wait for a manual merge, since the agent then reads a thread anyone can write in.
