@@ -4,7 +4,7 @@ import { after, before, beforeEach, test } from 'node:test';
 import { loadConfig } from './config.js';
 import { createService } from './server.js';
 
-const apiToken = 'scoped-api-test-0123456789';
+const apiToken = 'scoped-api-test-0123456789'; // gitleaks:allow -- synthetic test credential
 const mcpToken = 'mcp-client-test-0123456789';
 const calls: { path: string; method?: string; token?: string }[] = [];
 let mode = 'ok';
@@ -13,6 +13,7 @@ let url: string;
 const upstream = createServer((req, res) => {
   calls.push({ path: req.url!, method: req.method, token: req.headers.authorization });
   if (mode === 'redirect') { res.writeHead(302, { Location: url + '/trap' }).end(); return; }
+  if (['400', '401', '404', '429', '503'].includes(mode)) { res.writeHead(Number(mode)).end(apiToken); return; }
   if (mode === 'failure') { res.writeHead(403).end(apiToken); return; }
   if (mode === 'invalid') { res.end('invalid JSON ' + apiToken); return; }
   if (mode === 'large') { res.end(JSON.stringify({ body: 'x'.repeat(300_000) })); return; }
@@ -68,6 +69,10 @@ test('configuration rejects unsafe origins, shared credentials and invalid ports
   assert.throws(() => loadConfig({ ...env, MCP_TOKEN: 'short' }));
   assert.throws(() => loadConfig({ ...env, HTTP_PORT: '8080bad' }));
   assert.throws(() => loadConfig({ ...env, MCP_ALLOWED_HOSTS: '*' }));
+  for (const value of ['0', '-1', '1.5', 'NaN', '1001']) {
+    assert.throws(() => loadConfig({ ...env, MCP_RATE_LIMIT: value }));
+    assert.throws(() => loadConfig({ ...env, MCP_MAX_CONCURRENT: value }));
+  }
 });
 
 test('MCP initializes and advertises exactly five read-only tools', async () => {
@@ -153,5 +158,97 @@ test('upstream failures, redirects and invalid/large replies are errors, without
     assert.equal(answer.result.isError, true, failure);
     assert.ok(!JSON.stringify(answer).includes(apiToken));
     assert.equal(calls.length, 1);
+  }
+});
+
+test('2026 protocol discovery, headers, errors and stateless transport remain enforced', async () => {
+  const version = '2026-07-28';
+  const modern = (method: string, params: Record<string, unknown> = {}, headers: Record<string, string> = {}) => post({
+    jsonrpc: '2.0', id: 1, method, params: { ...params, _meta: {
+      'io.modelcontextprotocol/protocolVersion': headers['MCP-Protocol-Version'] ?? version,
+      'io.modelcontextprotocol/clientInfo': { name: 'test', version: '1' },
+      'io.modelcontextprotocol/clientCapabilities': {},
+    } },
+  }, { 'MCP-Protocol-Version': version, 'Mcp-Method': method,
+    ...(typeof params.name === 'string' ? { 'Mcp-Name': params.name } : {}), ...headers });
+  const discovery = await modern('server/discover');
+  assert.equal(discovery.status, 200);
+  assert.equal(discovery.headers.get('mcp-session-id'), null);
+  assert.match(await discovery.text(), /2026-07-28/);
+  assert.equal((await modern('tools/list', {}, { 'Mcp-Method': '' })).status, 400);
+  assert.equal((await modern('tools/list', {}, { 'Mcp-Method': 'tools/call' })).status, 400);
+  const unsupported = await modern('tools/list', {}, { 'MCP-Protocol-Version': '2099-01-01' });
+  assert.equal(unsupported.status, 400);
+  assert.match(await unsupported.text(), /-32022/);
+  assert.equal((await modern('unknown/method')).status, 404);
+  const unknown = await modern('tools/call', { name: 'delete_event', arguments: {} });
+  assert.equal(unknown.status, 200);
+  assert.match(await unknown.text(), /-32601|-32602/);
+  const invalid = await modern('tools/call', { name: 'whatsapp_search', arguments: { limit: 101 } });
+  assert.equal(invalid.status, 200);
+  assert.match(await invalid.text(), /"isError":true/);
+  assert.equal((await fetch(url + '/mcp', { method: 'DELETE', headers: { Authorization: 'Bearer ' + mcpToken } })).status, 405);
+  assert.equal(calls.length, 0);
+});
+
+test('rate limit refuses calls before the API and recovers after its window', async (t) => {
+  let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
+  const limited = createService(loadConfig({ ALFRED_API_URL: 'http://127.0.0.1:1',
+    ALFRED_API_TOKEN: apiToken, MCP_TOKEN: mcpToken, MCP_RATE_LIMIT: '2' }));
+  const target = await listen(limited);
+  const send = () => fetch(target + '/mcp', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
+      'MCP-Protocol-Version': '2025-06-18', Authorization: 'Bearer ' + mcpToken },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+  try {
+    for (let i = 0; i < 2; i++) { const reply = await send(); assert.equal(reply.status, 200); await reply.text(); }
+    const refused = await send();
+    assert.equal(refused.status, 429);
+    assert.equal(refused.headers.get('retry-after'), '60');
+    await refused.text();
+    clock += 60_001;
+    const recovered = await send(); assert.equal(recovered.status, 200); await recovered.text();
+    assert.equal(calls.length, 0);
+  } finally { await close(limited); }
+});
+
+test('concurrency limit blocks upstream overload and recovers after completion', async () => {
+  let enter!: () => void, unblock!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; });
+  const released = new Promise<void>(resolve => { unblock = resolve; });
+  let reads = 0;
+  const slow = createServer(async (_req, res) => { reads++; enter(); await released; res.end('{}'); });
+  const apiUrl = await listen(slow);
+  const limited = createService(loadConfig({ ALFRED_API_URL: apiUrl, ALFRED_API_TOKEN: apiToken,
+    MCP_TOKEN: mcpToken, MCP_MAX_CONCURRENT: '1' }));
+  const target = await listen(limited);
+  const send = () => fetch(target + '/mcp', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
+      'MCP-Protocol-Version': '2025-06-18', Authorization: 'Bearer ' + mcpToken },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'whatsapp_search', arguments: {} } }) });
+  try {
+    const first = send(); await entered;
+    const refused = await send(); assert.equal(refused.status, 429); await refused.text();
+    assert.equal(reads, 1);
+    unblock(); const completed = await first; assert.equal(completed.status, 200); await completed.text();
+    const recovered = await send(); assert.equal(recovered.status, 200); await recovered.text();
+    assert.equal(reads, 2);
+  } finally { unblock(); await close(limited); await close(slow); }
+});
+
+
+test('upstream errors give recovery advice without upstream text or credentials', async () => {
+  for (const [status, advice] of [
+    ['400', /YYYY-MM-DD/], ['401', /operator.*credential/], ['failure', /archive\.read/],
+    ['404', /Search again/], ['429', /Wait before retrying/], ['503', /not evidence.*absent/],
+    ['redirect', /Redirect refused/], ['large', /Reduce limit/], ['invalid', /check API health/],
+  ] as [string, RegExp][]) {
+    mode = status;
+    const reply = await call('whatsapp_search');
+    assert.equal(reply.result.isError, true);
+    const text = JSON.stringify(reply);
+    assert.match(text, advice);
+    assert.ok(!text.includes(apiToken) && !text.includes(mcpToken));
   }
 });

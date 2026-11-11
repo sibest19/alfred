@@ -15,8 +15,12 @@ const filters = {
 const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 /** Only fixed GET paths reach the configured API origin; redirects and unbounded replies are refused. */
-export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken'>) {
+export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 'maxConcurrent'>) {
+  let active = 0;
+  const failure = (text: string) => ({ isError: true, content: [{ type: 'text' as const, text }] });
   async function read(path: string, params: Record<string, string | number | undefined>) {
+    if (active >= config.maxConcurrent) return failure('Archive is busy; wait for pending calls before retrying.');
+    active++;
     try {
       const url = new URL(path, config.apiUrl);
       for (const [key, value] of Object.entries(params)) if (value !== undefined) url.searchParams.set(key, String(value));
@@ -26,7 +30,17 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken'>) 
       });
       if (!response.ok) {
         await response.body?.cancel();
-        return { isError: true, content: [{ type: 'text' as const, text: 'Alfred API returned HTTP ' + response.status }] };
+        const advice: Record<number, string> = {
+          400: 'Invalid archive filters. Check date format YYYY-MM-DD, Europe/Rome times and field ranges.',
+          401: 'API authentication failed. The operator must check the scoped API credential; do not retry unchanged.',
+          403: 'API permission denied. The operator must grant archive.read to this adapter credential.',
+          404: 'Archived message not found. Search again and use a message ID returned by the archive.',
+          429: 'Archive is rate-limited. Wait before retrying.',
+        };
+        return failure('Alfred API returned HTTP ' + response.status + '. ' + (advice[response.status] ??
+          (response.status >= 300 && response.status < 400
+            ? 'Redirect refused. The operator must check the configured API origin.'
+            : 'Archive unavailable. Retry later; this is not evidence that messages are absent.')));
       }
       const chunks: Uint8Array[] = [];
       let size = 0;
@@ -37,17 +51,19 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken'>) 
           const { done, value } = await reader.read();
           if (done) break;
           size += value.byteLength;
-          if (size > MAX_RESPONSE) throw new Error('Oversized response');
+          if (size > MAX_RESPONSE) return failure('Archive response exceeds 256 KiB. Reduce limit or context size and retry.');
           chunks.push(value);
         }
       } finally { await reader.cancel(); }
       const result: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Invalid response');
       return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-    } catch {
+    } catch (error) {
       // Never expose upstream errors or credentials to the model.
-      return { isError: true, content: [{ type: 'text' as const, text: 'Alfred API unavailable or returned an invalid/oversized response' }] };
-    }
+      return failure(error instanceof Error && error.name === 'TimeoutError'
+        ? 'Archive request timed out after 15 seconds. Retry later or use narrower filters.'
+        : 'Archive returned no valid response. The operator must check API health; do not infer that messages are absent.');
+    } finally { active--; }
   }
   return () => {
     const server = new McpServer({ name: 'alfred-whatsapp', version: '0.4.0' }, {

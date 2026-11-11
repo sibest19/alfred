@@ -11,6 +11,7 @@ export function createService(config: Config) {
   const validateHost = hostHeaderValidation(config.allowedHosts);
   const validateOrigin = originValidation([]);
   const token = Buffer.from(config.mcpToken);
+  let windowStarted = Date.now(), requests = 0, active = 0;
   const server = createServer((req, res) => {
     if (!validateHost(req, res) || !validateOrigin(req, res)) return;
     if (req.url === '/health' && req.method === 'GET') {
@@ -25,11 +26,21 @@ export function createService(config: Config) {
       return;
     }
     if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }).end(); return; }
+    const now = Date.now();
+    if (now - windowStarted >= 60_000) { windowStarted = now; requests = 0; }
+    if (requests >= config.rateLimit || active >= config.maxConcurrent) {
+      const retryAfter = active >= config.maxConcurrent ? 1 : Math.max(1, Math.ceil((60_000 - (now - windowStarted)) / 1000));
+      res.writeHead(429, { 'Retry-After': String(retryAfter), 'Content-Type': 'application/json' })
+        .end('{"error":"MCP request limit reached; retry after the indicated delay"}');
+      return;
+    }
+    requests++;
+    active++;
     void dispatch(req, res).catch(() => {
       console.error('MCP request failed');
       if (!res.headersSent) res.writeHead(500);
       res.end();
-    });
+    }).finally(() => { active--; });
   });
   server.requestTimeout = 20_000;
   server.headersTimeout = 10_000;

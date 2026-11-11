@@ -17,6 +17,9 @@ Variables are listed in `env.example`. Keep real secrets outside Git:
   never forwarded to Alfred. Both secrets need at least 16 bytes, no whitespace.
 - `MCP_ALLOWED_HOSTS`: explicit hostnames without ports; defaults to
   `alfred-mcp,localhost,127.0.0.1,[::1]`. Browser Origins are rejected.
+- `MCP_RATE_LIMIT`: authenticated requests per 60-second window, default 60.
+- `MCP_MAX_CONCURRENT`: in-flight requests and upstream reads, default 4. Both
+  limits are per adapter process; overload returns 429 with `Retry-After`.
 - `HTTP_PORT`: default 8080. The container binds all interfaces; attach only
   dedicated internal links, without publishing a host port.
 
@@ -33,7 +36,8 @@ mcp_servers:
 `ALFRED_MCP_TOKEN` in Hermes is the adapter's `MCP_TOKEN`, not its API credential.
 Filter tools to the WhatsApp specialist as well as enforcing API scopes. Verify
 the selected Hermes release against this endpoint before switching the real bot.
-The tests exercise the 2025-06-18 initialize/list/call flow. Legacy HTTP+SSE and
+The tests exercise the 2025-06-18 initialize/list/call flow and 2026-07-28
+discovery, header validation and stateless error behavior. Legacy HTTP+SSE and
 sessionful GET/DELETE transports are not provided.
 
 Input schemas reject unknown fields and bound search/context sizes. Upstream
@@ -60,4 +64,5 @@ with per-request server instances, bearer authentication and Host/Origin guards.
 
 Known [MCP gaps and deployment gates](GAPS.md) are tracked explicitly. A repeatable
 [isolated Hermes trial](../smoke/hermes/README.md) exercises this adapter with
-synthetic data and Hermes's own discovery/dispatch code, without model calls.
+synthetic data and Hermes's own discovery/dispatch and agent loop. The optional
+real-model mode uses a bounded relay with a separate test key.

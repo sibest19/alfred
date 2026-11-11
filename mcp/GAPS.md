@@ -5,14 +5,14 @@ Current adapter: dedicated private bearer token, read-only archive scope, no pro
 
 | ID | Status | Gap | Acceptance evidence needed |
 |---|---|---|---|
-| MCP-01 | Open | No invocation rate or concurrency limit | A bounded policy and tests proving overload is refused before upstream calls, with recovery afterwards |
+| MCP-01 | Closed in preparation | Per-process authenticated request and upstream concurrency limits | `src/server.test.ts`: rate-window refusal/recovery and blocked concurrent upstream calls/recovery. Defaults 60/minute, four concurrent; HTTP 429 + Retry-After |
 | MCP-02 | Open | Static token instead of standard HTTP OAuth authorization | Decide the production auth model; if OAuth, implement resource discovery, issuer/audience/expiry validation and scope challenges, with tests. Document any intentional private-service deviation; do not call it OAuth compliant |
-| MCP-03 | Open | 2026-07-28 protocol probes are not committed regression tests | Commit discovery, header mismatch, version rejection, unknown method/tool, validation-error and statelessness tests. Temporary local probes passed, but are not CI coverage |
-| MCP-04 | Open | Upstream errors are safe but too generic for recovery | Distinguish actionable authorization, missing-message, validation and availability failures without leaking credentials or raw upstream errors; test them |
+| MCP-03 | Closed in preparation | Committed 2026-07-28 regression coverage | `src/server.test.ts`: discovery, missing/mismatched headers, unsupported version, unknown RPC/tool, invalid input, no session header and GET/DELETE rejection |
+| MCP-04 | Closed in preparation | Actionable, sanitized upstream tool errors | `src/server.test.ts`: validation, authentication, permission, missing-message, throttling, availability, redirects, oversized/invalid replies and secret redaction |
 
-The isolated Hermes trial uses fixtures and an internal network. Its success does
-not close these gaps. Existing deployment gates also include a real Hermes/model
-trial, origin/write policy before adding writes, host/LAN/IPv6 egress verification,
+The isolated Hermes trial now passes both scripted and real-model scenarios with
+synthetic data. This does not validate production deployment. Remaining gates
+include origin/write policy before adding writes, host/LAN/IPv6 egress verification,
 TrueNAS UID/ACL validation, and backup/restore before importing memory.
 
 Update each row with the fixing commit and test evidence when closing it.
