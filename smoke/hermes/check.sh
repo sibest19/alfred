@@ -3,7 +3,7 @@ set -euo pipefail
 cp /trial/config.yaml "$HERMES_HOME/config.yaml"
 set -- /opt/hermes/tools/uv-*/uv
 [[ $# == 1 && -x "$1" ]] || { echo 'Expected the pinned Hermes uv runtime'; exit 1; }
-exec timeout --signal=TERM --kill-after=5s 90s "$1" run --offline --no-sync --project /opt/hermes python - <<'PY'
+exec timeout --signal=TERM --kill-after=5s "${TRIAL_WALL_TIMEOUT:-90s}" "$1" run --offline --no-sync --project /opt/hermes python - <<'PY'
 import json
 import os
 import socket
@@ -96,22 +96,51 @@ try:
     from run_agent import AIAgent
     from agent.conversation_loop import run_conversation
 
-    for scenario in ("LOOKUP", "DENY", "RECOVER"):
+    real_model = os.environ.get("TRIAL_REAL_MODEL") == "1"
+    scenarios = ("REAL",) if real_model else ("LOOKUP", "DENY", "RECOVER")
+    for scenario in scenarios:
         agent = AIAgent(
             provider="custom", api_mode="chat_completions",
-            base_url="http://model:8080/v1", api_key="fixture-model-key", model="fixture-model",
-            enabled_toolsets=["mcp-whatsapp"], max_iterations=4, max_tokens=256,
-            run_budget_seconds=45, quiet_mode=True, skip_context_files=True,
+            base_url="http://model:8080/v1", api_key="fixture-model-key",
+            model="z-ai/glm-5.3" if real_model else "fixture-model",
+            enabled_toolsets=["mcp-whatsapp"], max_iterations=5 if real_model else 4,
+            max_tokens=2048 if real_model else 256,
+            run_budget_seconds=120 if real_model else 45, quiet_mode=True, skip_context_files=True,
             skip_memory=True, skip_background_review=True,
         )
         try:
-            result = run_conversation(agent, "TRIAL_" + scenario + ": use the available archive tools for this isolated test.")
-            assert result.get("final_response") == "TRIAL_" + scenario + "_VERIFIED", result
+            prompt = (
+                "In the synthetic WhatsApp group Trial planning, did I agree to the dinner, "
+                "and did the other person named Simone agree? Resolve the chat, search the archive "
+                "and read the conversation context. Only sender me identifies me. "
+                "Return only a JSON object with owner_message_id, other_simone_message_id, "
+                "owner_attending, other_attending, and time (HH:MM). Use the message IDs as evidence."
+            ) if real_model else "TRIAL_" + scenario + ": use the available archive tools for this isolated test."
+            result = run_conversation(agent, prompt)
+            if real_model:
+                assert result.get("completed") and not result.get("failed"), result
+                text = result["final_response"].strip()
+                if text.startswith(chr(96) * 3):
+                    lines = text.splitlines()
+                    assert lines[-1] == chr(96) * 3
+                    text = "\n".join(lines[1:-1])
+                answer = json.loads(text)
+                assert answer == {
+                    "owner_message_id": 1002, "other_simone_message_id": 1003,
+                    "owner_attending": True, "other_attending": False, "time": "18:00",
+                }, answer
+                executed = [m.get("name", "") for m in result["messages"] if m.get("role") == "tool"]
+                assert any(name.endswith("whatsapp_search") for name in executed), executed
+                assert any(name.endswith("whatsapp_context") for name in executed), executed
+                print(json.dumps({"real_model_answer": answer, "executed_tools": executed}))
+            else:
+                assert result.get("final_response") == "TRIAL_" + scenario + "_VERIFIED", result
         finally:
             agent.close()
     with urllib.request.urlopen("http://model:8080/state", timeout=5) as response:
         model_state = json.load(response)
-    assert all(model_state[scenario]["verified"] for scenario in ("LOOKUP", "DENY", "RECOVER")), model_state
+    if not real_model:
+        assert all(model_state[scenario]["verified"] for scenario in scenarios), model_state
 
     print(json.dumps({
         "hermes_mcp_tools": len(discovered),
@@ -123,7 +152,7 @@ try:
         "internet_egress": "unavailable",
         "uid": os.geteuid(),
         "agent_loop_scenarios": model_state,
-        "external_model_calls": 0,
+        "external_model_calls": model_state.get("requests", 0) if real_model else 0,
     }))
 finally:
     shutdown_mcp_servers()

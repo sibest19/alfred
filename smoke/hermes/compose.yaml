@@ -51,7 +51,7 @@ services:
       PGUSER: assistant_api
       PGPASSWORD: trial-api-db-password
       PGDATABASE: assistant
-      API_TOKEN: trial-legacy-api-0123456789
+      API_TOKEN: trial-legacy-api-0123456789 # gitleaks:allow -- synthetic fixture credential
       API_SCOPED_TOKENS: '{"hermes":{"token":"trial-archive-only-0123456789","scopes":["archive.read"]}}'
     read_only: true
     cap_drop: [ALL]

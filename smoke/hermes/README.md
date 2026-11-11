@@ -23,8 +23,8 @@ Docker Desktop; other architectures and TrueNAS have not been exercised.
 The one-shot migration job uses the ingest image's database module only: it
 never starts a WhatsApp session. The seed job inserts three synthetic messages
 into an ephemeral Postgres, including Simone's own message and another person
-named Simone. API and MCP use distinct test-only credentials. No real archive,
-Telegram bot, external model key or Honcho instance is involved. A local scripted
+named Simone. API and MCP use distinct test-only credentials. The default mode uses no real archive,
+Telegram bot, external model key or Honcho instance. A local scripted
 OpenAI-compatible endpoint exercises the real Hermes agent loop without inference.
 
 Hermes runs non-root (UID 10000), with read-only root, capabilities dropped,
@@ -73,6 +73,41 @@ own containers, networks and volumes on success or failure. PostgreSQL and Herme
 state live in tmpfs; the only persistent output is the image cache and these test
 artifacts. The trial is manual and is not yet part of hosted CI.
 
-[MCP gaps](../../mcp/GAPS.md) remain open. Next verification is a real-model
-conversation with synthetic data and a dedicated test credential; only then should
-production bot, data and host-specific deployment settings enter the pilot.
+## Optional real-model check
+
+A dedicated, capped and expiring OpenRouter test key can exercise real inference:
+
+```sh
+HERMES_TRIAL_REAL=1 TRIAL_OPENROUTER_KEY_FILE=/secure/path/to/key smoke/hermes/run.sh
+```
+
+Never put the key in a command argument, environment value, compose file or Git.
+The runner transfers the file through stdin into a temporary Docker volume with
+UID 1000 ownership and mode 0400. Only the non-root model relay mounts it read-only;
+Hermes still has only a dummy relay credential. Cleanup removes the secret volume,
+and the runner refuses an existing one rather than overwriting it. An interrupted
+host or SIGKILL may leave it behind: inspect the stopped project before deleting it.
+
+Only the relay joins an egress network. Its upstream URL and model are fixed to
+OpenRouter and `z-ai/glm-5.3`; caller-supplied model/provider settings are ignored.
+It permits six requests, one in flight, 2048 output tokens per call, 40-second
+upstream timeouts and at most $0.25 in conservative reservations using provider
+price ceilings of $1/M input and $3/M output tokens. The Hermes process has a
+180-second wall-clock limit. This relay is a test harness, not a production proxy.
+It buffers the bounded upstream reply and adapts it to SSE when Hermes requests it.
+
+Provider preferences require parameter support, deny training/data collection,
+and follow account ZDR routing preferences (`zdr:true`). Verify the account's
+retention policy before sending personal data; those flags alone are not proof of
+a provider's retention behavior. The only model inputs here are synthetic data.
+
+Verified on 2026-11-11 with the pinned Hermes image: four successful real model
+calls through provider Decart, reported cost $0.00229445. Hermes invoked chat
+lookup, search and context, then correctly cited message 1002 as the owner's
+acceptance and message 1003 as the other Simone's refusal, at 18:00. The check
+asserts both the final structured answer and actual tool executions. Model
+choices and availability can vary on later runs.
+
+[MCP gaps](../../mcp/GAPS.md) and production gates remain tracked. The test does
+not validate Telegram, Honcho, real-data retention, TrueNAS permissions, full
+egress controls or the production gateway lifecycle.
