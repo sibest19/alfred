@@ -106,7 +106,10 @@ calls through provider Decart, reported cost $0.00229445. Hermes invoked chat
 lookup, search and context, then correctly cited message 1002 as the owner's
 acceptance and message 1003 as the other Simone's refusal, at 18:00. The check
 asserts both the final structured answer and actual tool executions. Model
-choices and availability can vary on later runs.
+choices and availability can vary on later runs. After rebasing onto updated
+Postgres/IMAP dependencies, another successful four-call run through Wafer reported
+$0.003083624. One intervening run failed strict answer-format validation; it remains
+tracked as HERMES-02 rather than treated as a successful or reliable run.
 
 [MCP gaps](../../mcp/GAPS.md) and production gates remain tracked. The test does
 not validate Telegram, Honcho, real-data retention, TrueNAS permissions, full

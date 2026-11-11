@@ -122,7 +122,7 @@ try:
                 text = result["final_response"].strip()
                 if text.startswith(chr(96) * 3):
                     lines = text.splitlines()
-                    assert lines[-1] == chr(96) * 3
+                    assert lines[-1] == chr(96) * 3, text
                     text = "\n".join(lines[1:-1])
                 answer = json.loads(text)
                 assert answer == {

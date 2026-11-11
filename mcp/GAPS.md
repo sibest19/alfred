@@ -22,6 +22,7 @@ Do not replace an open item with an assumption that the SDK handles it.
 
 | ID | Status | Observation | Acceptance evidence needed |
 |---|---|---|---|
+| HERMES-02 | Open for production | A repeat real-model run returned an unterminated fenced answer under the 2048-token cap; subsequent run passed. The original failed answer was not captured, so truncation is unconfirmed | Retain safe finish-reason/token diagnostics; verify representative prompts under bounded output and validate structured results before taking actions. The trial fails closed on malformed JSON |
 | HERMES-01 | Open for production; trial bounded | Provider transient-error retries exceeded the agent's 45-second run budget during the scripted model test | Verify a production wall-clock/call/spend limit across retries and fallbacks. The local harness uses a separate 90-second timeout; do not rely on max_iterations or run_budget_seconds alone |
 
 The optional tool-search bridge replaces the direct MCP schemas with three
@@ -32,3 +33,5 @@ by changing a prompt.
 
 References: [official HTTP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 [official transport requirements](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports).
+
+MCP-01, MCP-03 and MCP-04 were fixed in `60d569d`; the real-model trial was added in `e7d59e3`.

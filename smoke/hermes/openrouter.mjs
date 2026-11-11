@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 
 const key = readFileSync('/run/model-key/key', 'utf8').trim();
 assert.ok(key.length >= 16);
-const state = { requests: 0, successes: 0, reserved_usd: 0, cost_usd: 0, providers: [] };
+const state = { requests: 0, successes: 0, reserved_usd: 0, cost_usd: 0, providers: [], finish_reasons: [], completion_tokens: 0 };
 let active = false;
 createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
@@ -56,6 +56,8 @@ createServer(async (req, res) => {
     const result = await response.json();
     assert.ok(result.choices?.length);
     state.successes++;
+    state.finish_reasons.push(...result.choices.map(choice => choice.finish_reason));
+    state.completion_tokens += Number(result.usage?.completion_tokens ?? 0);
     state.cost_usd += Number(result.usage?.cost ?? 0);
     if (result.provider && !state.providers.includes(result.provider)) state.providers.push(result.provider);
     const base = { id: result.id, created: result.created, model: result.model };
