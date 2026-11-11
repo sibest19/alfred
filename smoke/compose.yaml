@@ -37,5 +37,33 @@ services:
       PGPASSWORD: smoke
       PGDATABASE: assistant
       API_TOKEN: smoke-token-0123456789
+      API_SCOPED_TOKENS: '{"hermes":{"token":"smoke-reader-0123456789","scopes":["archive.read"]}}'
     ports:
       - 127.0.0.1:18081:8080
+    networks:
+      - default
+      - mcp-api
+  mcp:
+    image: ${MCP_IMAGE:-alfred-mcp:smoke}
+    profiles: [api]
+    depends_on:
+      - api
+    environment:
+      ALFRED_API_URL: http://api:8080
+      ALFRED_API_TOKEN: smoke-reader-0123456789
+      MCP_TOKEN: smoke-mcp-client-0123456789
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 256m
+    networks:
+      - mcp-api
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+networks:
+  mcp-api:
+    internal: true

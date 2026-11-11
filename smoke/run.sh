@@ -86,6 +86,31 @@ api GET /stats
 api GET '/stats?group_by=day'
 api GET /chats
 api GET '/contacts?q=rossi'
+# Permission checks use real HTTP routes, before any handler can read or modify data.
+expect_status() {
+  local expected=$1 method=$2 path=$3 token=$4 code
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X "$method" -H "Authorization: Bearer $token" "http://127.0.0.1:18081$path")
+  [[ $code == "$expected" ]] || { echo "FAIL: $method $path -> $code (expected $expected)"; exit 1; }
+  echo "ok: permission $method $path -> $code"
+}
+for path in /messages /stats /chats '/contacts?q=rossi'; do
+  expect_status 200 GET "$path" smoke-reader-0123456789
+done
+expect_status 401 GET /messages wrong-token
+for path in /notes /notes/topics /consolidations/pending /reminders /mail /mail/read /calendar/events; do
+  expect_status 403 GET "$path" smoke-reader-0123456789
+done
+for path in /notes /notes/1/restore /notes/merge /consolidations /reminders /reminders/due /reminders/1/snooze /reminders/1/done /calendar/events /transcribe; do
+  expect_status 403 POST "$path" smoke-reader-0123456789
+done
+for path in /notes/1 /reminders/1 /calendar/events/01234567; do
+  expect_status 403 PATCH "$path" smoke-reader-0123456789
+  expect_status 403 DELETE "$path" smoke-reader-0123456789
+done
+expect_status 403 PUT /notes/summaries smoke-reader-0123456789
+# API credentials must never be forwarded to an external model provider.
+expect_status 403 POST /openrouter/v1/chat/completions smoke-reader-0123456789
+expect_status 403 POST /openrouter/v1/chat/completions smoke-token-0123456789
 api POST /notes '{"title":"Smoke","content":"A note from the smoke test","topic":"other"}'
 api GET '/notes?q=smoke'
 api GET /notes/topics
@@ -116,4 +141,45 @@ assert.equal(b.messages[1].content[0].cache_control.type, 'ephemeral');
 assert.equal(typeof withCache({ model: 'z-ai/glm', messages: [{ role: 'system', content: 'a\n\nb' }] }).messages[0].content, 'string');
 "
 echo 'ok: model route cache marks'
+# The MCP container has only the API link: no database credentials, mounts or direct DB network.
+dc up -d --wait mcp
+dc exec -T mcp node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { lookup } from 'node:dns/promises';
+const token = process.env.MCP_TOKEN;
+async function rpc(method, params = {}, credential = token) {
+  const res = await fetch('http://127.0.0.1:8080/mcp', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream',
+      authorization: 'Bearer ' + credential, 'mcp-protocol-version': '2025-06-18' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  if (credential !== token) { assert.equal(res.status, 401); return; }
+  assert.equal(res.status, 200);
+  const body = await res.text();
+  return JSON.parse(res.headers.get('content-type')?.includes('text/event-stream')
+    ? body.split('\n').find((line) => line.startsWith('data:')).slice(5) : body);
+}
+const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } });
+assert.equal(init.result.protocolVersion, '2025-06-18');
+const list = await rpc('tools/list');
+assert.equal(list.result.tools.length, 5);
+for (const [name, args] of [
+  ['whatsapp_search', { sender: 'me' }], ['whatsapp_stats', {}],
+  ['whatsapp_find_chat', {}], ['whatsapp_find_contact', { q: 'smoke' }],
+]) {
+  const reply = await rpc('tools/call', { name, arguments: args });
+  assert.ok(!reply.error && !reply.result.isError, JSON.stringify(reply));
+}
+const missing = await rpc('tools/call', { name: 'whatsapp_context', arguments: { id: 999999 } });
+assert.equal(missing.result.isError, true);
+assert.match(missing.result.content[0].text, /HTTP 404/);
+const denied = await rpc('tools/call', { name: 'delete_event', arguments: {} });
+assert.ok(denied.error || denied.result?.isError);
+await rpc('tools/list', {}, process.env.ALFRED_API_TOKEN);
+assert.equal(process.getuid(), 1000);
+assert.equal(process.env.PGPASSWORD, undefined);
+await assert.rejects(lookup('postgres'));
+console.log('ok: MCP handshake, archive tools, denied calls, non-root and separate DB network');
+JS
 echo 'smoke test passed'

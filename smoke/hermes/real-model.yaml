@@ -1,0 +1,21 @@
+# Applied only when HERMES_TRIAL_REAL=1. The model key stays in the relay.
+services:
+  model:
+    entrypoint: [node, /trial/openrouter.mjs]
+    volumes:
+      - ./openrouter.mjs:/trial/openrouter.mjs:ro
+      - model-key:/run/model-key:ro
+    networks:
+      - hermes
+      - model-egress
+  hermes:
+    environment:
+      TRIAL_REAL_MODEL: "1"
+      TRIAL_WALL_TIMEOUT: 180s
+volumes:
+  model-key:
+    external: true
+    name: alfred-hermes-trial-model-key
+networks:
+  model-egress: {}
+
