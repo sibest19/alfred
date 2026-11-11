@@ -2,6 +2,7 @@ packages:
   - db
   - ingest
   - api
+  - mcp
 
 allowBuilds:
   baileys: true

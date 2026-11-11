@@ -48,13 +48,13 @@ jobs:
             exit 0
           fi
 
-          # Every check of CI (the three image builds start after build and smoke) and CodeQL must show up on this
+          # Every check of CI (the four image builds start after build and smoke) and CodeQL must show up on this
           # commit, then all must pass: not failed, cancelled or skipped
           registered() {
             local names
             names=$(gh pr checks "$PR" --json name --jq '.[].name') || return 1
             for check in build smoke transcriber CodeQL; do grep -qx "$check" <<<"$names" || return 1; done
-            [[ $(grep -c '^image (' <<<"$names") -eq 3 ]]
+            [[ $(grep -c '^image (' <<<"$names") -eq 4 ]]
           }
           for _ in $(seq 120); do registered && break; sleep 15; done
           if ! registered; then echo 'CI or CodeQL never fully started on this commit'; exit 0; fi
@@ -67,7 +67,7 @@ jobs:
           if [[ $(head) != "OPEN app/alfred-github-agent false $SHA" ]]; then echo "changed meanwhile: $(head)"; exit 0; fi
 
           # Like Renovate's updates of what goes into the images: shipped as the next patch version
-          if grep -qE '^(api|ingest|db|transcriber)/|^package(-lock)?\.json$' <<<"$files"; then
+          if grep -qE '^(api|ingest|db|mcp|transcriber)/|^package(-lock)?\.json$' <<<"$files"; then
             gh pr edit "$PR" --add-label release
           fi
           gh pr merge "$PR" --squash --match-head-commit "$SHA" --delete-branch
