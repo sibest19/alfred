@@ -3,7 +3,7 @@ set -euo pipefail
 cp /trial/config.yaml "$HERMES_HOME/config.yaml"
 set -- /opt/hermes/tools/uv-*/uv
 [[ $# == 1 && -x "$1" ]] || { echo 'Expected the pinned Hermes uv runtime'; exit 1; }
-exec "$1" run --offline --no-sync --project /opt/hermes python - <<'PY'
+exec timeout --signal=TERM --kill-after=5s 90s "$1" run --offline --no-sync --project /opt/hermes python - <<'PY'
 import json
 import os
 import socket
@@ -92,6 +92,27 @@ try:
     else:
         raise AssertionError("Invalid MCP token accepted")
 
+    # Exercise the real agent loop; the local endpoint scripts tool choices, not reasoning.
+    from run_agent import AIAgent
+    from agent.conversation_loop import run_conversation
+
+    for scenario in ("LOOKUP", "DENY", "RECOVER"):
+        agent = AIAgent(
+            provider="custom", api_mode="chat_completions",
+            base_url="http://model:8080/v1", api_key="fixture-model-key", model="fixture-model",
+            enabled_toolsets=["mcp-whatsapp"], max_iterations=4, max_tokens=256,
+            run_budget_seconds=45, quiet_mode=True, skip_context_files=True,
+            skip_memory=True, skip_background_review=True,
+        )
+        try:
+            result = run_conversation(agent, "TRIAL_" + scenario + ": use the available archive tools for this isolated test.")
+            assert result.get("final_response") == "TRIAL_" + scenario + "_VERIFIED", result
+        finally:
+            agent.close()
+    with urllib.request.urlopen("http://model:8080/state", timeout=5) as response:
+        model_state = json.load(response)
+    assert all(model_state[scenario]["verified"] for scenario in ("LOOKUP", "DENY", "RECOVER")), model_state
+
     print(json.dumps({
         "hermes_mcp_tools": len(discovered),
         "fixture_reads": "passed",
@@ -101,7 +122,8 @@ try:
         "direct_api_and_database_dns": "unavailable",
         "internet_egress": "unavailable",
         "uid": os.geteuid(),
-        "model_calls": 0,
+        "agent_loop_scenarios": model_state,
+        "external_model_calls": 0,
     }))
 finally:
     shutdown_mcp_servers()

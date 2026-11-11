@@ -88,6 +88,8 @@ services:
     depends_on:
       mcp:
         condition: service_healthy
+      model:
+        condition: service_healthy
     user: 10000:10000
     init: true
     entrypoint: [/bin/bash, /trial/check.sh]
@@ -111,6 +113,22 @@ services:
     pids_limit: 128
     mem_limit: 1g
     networks: [hermes]
+  model:
+    image: ${API_IMAGE:-alfred-api:permissions-test}
+    entrypoint: [node, /trial/model.mjs]
+    volumes:
+      - ./model.mjs:/trial/model.mjs:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 256m
+    networks: [hermes]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
 networks:
   database:
     internal: true

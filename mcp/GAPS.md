@@ -18,5 +18,17 @@ TrueNAS UID/ACL validation, and backup/restore before importing memory.
 Update each row with the fixing commit and test evidence when closing it.
 Do not replace an open item with an assumption that the SDK handles it.
 
+## Hermes runtime observations
+
+| ID | Status | Observation | Acceptance evidence needed |
+|---|---|---|---|
+| HERMES-01 | Open for production; trial bounded | Provider transient-error retries exceeded the agent's 45-second run budget during the scripted model test | Verify a production wall-clock/call/spend limit across retries and fallbacks. The local harness uses a separate 90-second timeout; do not rely on max_iterations or run_budget_seconds alone |
+
+The optional tool-search bridge replaces the direct MCP schemas with three
+discovery/call tools by default. The five-tool pilot explicitly disables it and
+checks the actual model-visible catalog. Re-enable it only with equivalent
+toolset/denied-call coverage. This is a deliberate pilot setting, not a gap closed
+by changing a prompt.
+
 References: [official HTTP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 [official transport requirements](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports).

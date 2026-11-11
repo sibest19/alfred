@@ -10,12 +10,12 @@ if [[ -n $(docker ps -aq --filter label=com.docker.compose.project=alfred-hermes
 fi
 finish() {
   status=$?
-  if [[ $status != 0 ]]; then dc logs --no-color api mcp || true; fi
+  if [[ $status != 0 ]]; then dc logs --no-color api mcp model || true; fi
   dc down --volumes --remove-orphans >/dev/null 2>&1 || true
   exit "$status"
 }
 trap finish EXIT
-dc up -d --wait mcp
+dc up -d --wait mcp model
 dc run --rm --no-deps -T hermes
 echo 'ok: isolated Hermes MCP trial passed'
 

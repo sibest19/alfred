@@ -24,7 +24,8 @@ The one-shot migration job uses the ingest image's database module only: it
 never starts a WhatsApp session. The seed job inserts three synthetic messages
 into an ephemeral Postgres, including Simone's own message and another person
 named Simone. API and MCP use distinct test-only credentials. No real archive,
-Telegram bot, model key or Honcho instance is involved.
+Telegram bot, external model key or Honcho instance is involved. A local scripted
+OpenAI-compatible endpoint exercises the real Hermes agent loop without inference.
 
 Hermes runs non-root (UID 10000), with read-only root, capabilities dropped,
 `no-new-privileges`, an init process, PID/memory limits, and fresh
@@ -37,9 +38,17 @@ Hermes ── hermes network ── MCP ── api network ── API ── dat
 
 The official image's normal entrypoint is replaced for this one-shot check;
 this does not validate the s6 gateway's production startup. The check invokes
-Hermes's own `discover_mcp_tools` and tool registry `dispatch`, using its pinned
-Python 3.14 environment through bundled uv, offline and without dependency sync.
-It is not a substitute for a conversational model/agent-loop test.
+Hermes's own `discover_mcp_tools`, tool registry `dispatch`, and `AIAgent`
+conversation loop, using its pinned Python 3.14 environment through bundled uv,
+offline and without dependency sync. The local endpoint scripts tool choices and
+checks returned fixture data before producing its final response; it does not
+evaluate a real model's reasoning. The optional tool-search bridge is explicitly
+off so the model receives the five tools directly, with no native tools added.
+
+The agent scenarios verify lookup plus conversation context, refusal of an
+unavailable calendar-write tool, and recovery from invalid search arguments.
+They use eight local model-endpoint requests (3 + 2 + 3) and zero external model
+calls. MCP result envelopes remain marked as untrusted data by Hermes.
 
 ## Verified on 2026-11-11
 
@@ -51,13 +60,19 @@ It is not a substitute for a conversational model/agent-loop test.
 - A wrong inbound token rejected with HTTP 401.
 - Direct API/Postgres service DNS unavailable from Hermes; connecting to
   `1.1.1.1:443` fails. This is not a complete host/LAN/IPv6 egress test.
-- No model calls, production credentials, Docker socket or persistent state.
+- No external model calls, production credentials, Docker socket or persistent state.
+
+The whole Hermes check has a 90-second wall-clock timeout with a five-second
+termination grace. This bounds the test even if internal provider retries run
+past `run_budget_seconds`; that behavior was observed with a failing fixture.
+Fixture assertion errors return HTTP 400 so they fail fast rather than triggering
+the provider's transient-error backoff.
 
 The runner refuses an existing project with the same name, then cleans up its
 own containers, networks and volumes on success or failure. PostgreSQL and Hermes
 state live in tmpfs; the only persistent output is the image cache and these test
 artifacts. The trial is manual and is not yet part of hosted CI.
 
-[MCP gaps](../../mcp/GAPS.md) remain open. Next verification is a model-driven
-conversation with synthetic data and a reviewed toolset policy; only then should
+[MCP gaps](../../mcp/GAPS.md) remain open. Next verification is a real-model
+conversation with synthetic data and a dedicated test credential; only then should
 production bot, data and host-specific deployment settings enter the pilot.

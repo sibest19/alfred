@@ -1,3 +1,6 @@
+tools:
+  tool_search:
+    enabled: "off"
 mcp_servers:
   whatsapp:
     url: http://mcp:8080/mcp
