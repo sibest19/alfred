@@ -13,7 +13,7 @@ Current adapter: dedicated private bearer token, read-only archive scope, no pro
 The isolated Hermes trial now passes both scripted and real-model scenarios with
 synthetic data. This does not validate production deployment. Remaining gates
 include origin/write policy before adding writes, host/LAN/IPv6 egress verification,
-TrueNAS UID/ACL validation, and backup/restore before importing memory.
+Host UID/ACL validation, and backup/restore before importing memory.
 
 Update each row with the fixing commit and test evidence when closing it.
 Do not replace an open item with an assumption that the SDK handles it.
@@ -22,7 +22,7 @@ Do not replace an open item with an assumption that the SDK handles it.
 
 | ID | Status | Observation | Acceptance evidence needed |
 |---|---|---|---|
-| HERMES-02 | Open for production | A repeat real-model run returned an unterminated fenced answer under the 2048-token cap; subsequent run passed. The original failed answer was not captured, so truncation is unconfirmed | Retain safe finish-reason/token diagnostics; verify representative prompts under bounded output and validate structured results before taking actions. The trial fails closed on malformed JSON |
+| HERMES-02 | Open for production | Some real-model replies violate the JSON-only request. A later diagnostic run returned valid fenced JSON followed by evidence prose, which the strict check rejected; the original failure was not captured | Retain safe finish-reason/token diagnostics; verify representative prompts under bounded output and validate structured results before taking actions. The trial fails closed on malformed JSON |
 | HERMES-01 | Open for production; trial bounded | Provider transient-error retries exceeded the agent's 45-second run budget during the scripted model test | Verify a production wall-clock/call/spend limit across retries and fallbacks. The local harness uses a separate 90-second timeout; do not rely on max_iterations or run_budget_seconds alone |
 
 The optional tool-search bridge replaces the direct MCP schemas with three

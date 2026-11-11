@@ -18,6 +18,7 @@ finish() {
   exit "$status"
 }
 trap finish EXIT
+./utf8.sh
 if [[ ${HERMES_TRIAL_REAL:-0} == 1 ]]; then
   [[ -r ${TRIAL_OPENROUTER_KEY_FILE:-} ]] || { echo 'A readable secure key file is required'; exit 1; }
   if docker volume inspect alfred-hermes-trial-model-key >/dev/null 2>&1; then

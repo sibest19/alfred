@@ -58,6 +58,7 @@ createServer(async (req, res) => {
   if (req.url !== '/v1/chat/completions' || req.method !== 'POST') { res.writeHead(404).end(); return; }
   if (req.headers.authorization !== 'Bearer fixture-model-key') { res.writeHead(401).end(); return; }
   try {
+    req.setEncoding('utf8');
     let raw = '';
     for await (const chunk of req) {
       raw += chunk;

@@ -52,7 +52,7 @@ From the repository root: `pnpm build && pnpm typecheck && pnpm test`.
 Build with `docker build -f mcp/Dockerfile -t alfred-mcp:smoke .`.
 `smoke/run.sh` exercises MCP against a scoped API and fresh Postgres. The MCP
 container runs as UID 1000, read-only, without capabilities or host mounts, and
-joins only the internal API link. TrueNAS UID/ACL provisioning and host/LAN egress
+joins only the internal API link. Host UID/ACL provisioning and host/LAN egress
 restrictions remain a separate deployment increment.
 
 There is no persistent adapter state. Add tools through explicit schemas and

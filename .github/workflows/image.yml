@@ -59,6 +59,7 @@ jobs:
           tags: alfred-mcp:smoke
           cache-from: type=gha,scope=mcp
       - run: smoke/run.sh
+      - run: API_IMAGE=alfred-api:smoke smoke/hermes/utf8.sh
 
   # The transcriber image on the CPU (CI has no Intel GPU): the model loads and a spoken sentence comes back
   transcriber:

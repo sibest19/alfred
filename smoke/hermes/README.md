@@ -16,14 +16,14 @@ Image overrides: `API_IMAGE`, `INGEST_IMAGE`, `MCP_IMAGE`. Hermes is pinned in
 `compose.yaml` to official image manifest digest
 `sha256:276d44685c65c0cb2a25f190b63c65c8906f9dc76486fb1c05ae71b5826bda08`.
 The trial does not follow a floating tag. It was exercised on Linux arm64 through
-Docker Desktop; other architectures and TrueNAS have not been exercised.
+Docker Desktop; other architectures and deployment environments have not been exercised.
 
 ## What it runs
 
 The one-shot migration job uses the ingest image's database module only: it
 never starts a WhatsApp session. The seed job inserts three synthetic messages
-into an ephemeral Postgres, including Simone's own message and another person
-named Simone. API and MCP use distinct test-only credentials. The default mode uses no real archive,
+into an ephemeral Postgres, including the fictional owner Alex's message and another person
+named Alex. API and MCP use distinct test-only credentials. The default mode uses no real archive,
 Telegram bot, external model key or Honcho instance. A local scripted
 OpenAI-compatible endpoint exercises the real Hermes agent loop without inference.
 
@@ -55,12 +55,17 @@ calls. MCP result envelopes remain marked as untrusted data by Hermes.
 - Five MCP tools discovered with an explicit include list; native terminal/code
   tools absent from this check's registry.
 - Real scoped API reads for chat/contact lookup, messages, context and statistics.
-- Only `sender=me` identifies the owner's message; the other Simone stays separate.
+- Only `sender=me` identifies the owner's message; the other Alex stays separate.
 - Oversized tool arguments and an unregistered calendar-write tool rejected.
 - A wrong inbound token rejected with HTTP 401.
 - Direct API/Postgres service DNS unavailable from Hermes; connecting to
   `1.1.1.1:443` fails. This is not a complete host/LAN/IPv6 egress test.
 - No external model calls, production credentials, Docker socket or persistent state.
+
+The runner first executes `utf8.sh`: both HTTP readers must preserve a multibyte
+character split across writes. The relay test mocks upstream inference, uses a
+synthetic key in tmpfs and has no network access. This check also runs in CI,
+without pulling the Hermes image or requiring real credentials.
 
 The whole Hermes check has a 90-second wall-clock timeout with a five-second
 termination grace. This bounds the test even if internal provider retries run
@@ -104,13 +109,15 @@ a provider's retention behavior. The only model inputs here are synthetic data.
 Verified on 2026-11-11 with the pinned Hermes image: four successful real model
 calls through provider Decart, reported cost $0.00229445. Hermes invoked chat
 lookup, search and context, then correctly cited message 1002 as the owner's
-acceptance and message 1003 as the other Simone's refusal, at 18:00. The check
+acceptance and message 1003 as the other Alex's refusal, at 18:00. The check
 asserts both the final structured answer and actual tool executions. Model
 choices and availability can vary on later runs. After rebasing onto updated
 Postgres/IMAP dependencies, another successful four-call run through Wafer reported
 $0.003083624. One intervening run failed strict answer-format validation; it remains
-tracked as HERMES-02 rather than treated as a successful or reliable run.
+tracked as HERMES-02 rather than treated as a successful or reliable run. A later
+run with fully fictional owner Alex returned the correct JSON plus unsolicited
+evidence prose; strict format validation correctly rejected that response.
 
 [MCP gaps](../../mcp/GAPS.md) and production gates remain tracked. The test does
-not validate Telegram, Honcho, real-data retention, TrueNAS permissions, full
+not validate Telegram, Honcho, real-data retention, host permissions, full
 egress controls or the production gateway lifecycle.

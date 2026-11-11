@@ -240,7 +240,7 @@ test('concurrency limit blocks upstream overload and recovers after completion',
 
 test('upstream errors give recovery advice without upstream text or credentials', async () => {
   for (const [status, advice] of [
-    ['400', /YYYY-MM-DD/], ['401', /operator.*credential/], ['failure', /archive\.read/],
+    ['400', /API configured TZ/], ['401', /operator.*credential/], ['failure', /archive\.read/],
     ['404', /Search again/], ['429', /Wait before retrying/], ['503', /not evidence.*absent/],
     ['redirect', /Redirect refused/], ['large', /Reduce limit/], ['invalid', /check API health/],
   ] as [string, RegExp][]) {

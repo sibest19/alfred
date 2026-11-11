@@ -15,6 +15,7 @@ createServer(async (req, res) => {
   if (active || state.requests >= 6) { res.writeHead(429).end('{"error":{"message":"Trial request limit reached"}}'); return; }
   active = true;
   try {
+    req.setEncoding('utf8');
     let raw = '';
     for await (const chunk of req) {
       raw += chunk;

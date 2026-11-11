@@ -110,10 +110,10 @@ try:
         )
         try:
             prompt = (
-                "In the synthetic WhatsApp group Trial planning, did I agree to the dinner, "
-                "and did the other person named Simone agree? Resolve the chat, search the archive "
+                "I am the fictional owner Alex. In the synthetic WhatsApp group Trial planning, did I agree to the dinner, "
+                "and did the other person named Alex agree? Resolve the chat, search the archive "
                 "and read the conversation context. Only sender me identifies me. "
-                "Return only a JSON object with owner_message_id, other_simone_message_id, "
+                "Return only a JSON object with owner_message_id, other_person_message_id, "
                 "owner_attending, other_attending, and time (HH:MM). Use the message IDs as evidence."
             ) if real_model else "TRIAL_" + scenario + ": use the available archive tools for this isolated test."
             result = run_conversation(agent, prompt)
@@ -126,7 +126,7 @@ try:
                     text = "\n".join(lines[1:-1])
                 answer = json.loads(text)
                 assert answer == {
-                    "owner_message_id": 1002, "other_simone_message_id": 1003,
+                    "owner_message_id": 1002, "other_person_message_id": 1003,
                     "owner_attending": True, "other_attending": False, "time": "18:00",
                 }, answer
                 executed = [m.get("name", "") for m in result["messages"] if m.get("role") == "tool"]
@@ -145,7 +145,7 @@ try:
     print(json.dumps({
         "hermes_mcp_tools": len(discovered),
         "fixture_reads": "passed",
-        "sender_me_and_other_simone": "passed",
+        "sender_me_and_other_person": "passed",
         "invalid_input_and_unknown_write": "denied",
         "invalid_token": "denied",
         "direct_api_and_database_dns": "unavailable",
