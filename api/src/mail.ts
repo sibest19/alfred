@@ -41,9 +41,9 @@ export function splitMailId(id: string): { name: string; gmailId: string } | { n
   return m ? { name: ICLOUD, mailbox: m[1], uid: Number(m[2]) } : undefined;
 }
 
-// mailbox undefined: Gmail's All Mail (what Gmail's own search covers, and where a Gmail id is looked up), iCloud's INBOX
-async function withMailbox<T>(a: Account, mailbox: string | undefined, fn: (client: ImapFlow, mailbox: string) => Promise<T>): Promise<T> {
-  const label = a.gmail ? `Gmail (${a.name})` : 'iCloud';
+const label = (a: Account) => (a.gmail ? `Gmail (${a.name})` : 'iCloud');
+
+async function withClient<T>(a: Account, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
   const client = new ImapFlow({
     host: a.host, port: 993, secure: true, logger: false,
     auth: { user: a.user, pass: a.password },
@@ -52,30 +52,41 @@ async function withMailbox<T>(a: Account, mailbox: string | undefined, fn: (clie
   try {
     await client.connect();
   } catch (err: any) {
-    if (err?.authenticationFailed) throw new HttpError(502, `${label} refused the login: check the address and the app password`);
-    throw new HttpError(502, `${label} mail is unreachable: ${err?.message ?? err}`);
+    if (err?.authenticationFailed) throw new HttpError(502, `${label(a)} refused the login: check the address and the app password`);
+    throw new HttpError(502, `${label(a)} mail is unreachable: ${err?.message ?? err}`);
   }
   try {
-    if (mailbox === undefined && a.gmail) {
-      mailbox = (await client.list()).find((m) => m.specialUse === '\\All')?.path;
-      if (!mailbox) throw new HttpError(503, `${label} doesn't show All Mail over IMAP: enable "Show in IMAP" for it in Gmail's label settings, or name a mailbox`);
-    }
-    mailbox ??= 'INBOX';
-    let lock;
-    try {
-      lock = await client.getMailboxLock(mailbox, { readOnly: true });
-    } catch {
-      const names = (await client.list()).filter((m) => !m.flags.has('\\Noselect')).map((m) => m.path);
-      throw new HttpError(400, `no mailbox "${mailbox}"; there are: ${names.join(', ')}`);
-    }
-    try {
-      return await fn(client, mailbox);
-    } finally {
-      lock.release();
-    }
+    return await fn(client);
   } finally {
     await client.logout().catch(() => client.close());
   }
+}
+
+async function inMailbox<T>(client: ImapFlow, mailbox: string, fn: () => Promise<T>): Promise<T> {
+  let lock;
+  try {
+    lock = await client.getMailboxLock(mailbox, { readOnly: true });
+  } catch {
+    const names = (await client.list()).filter((m) => !m.flags.has('\\Noselect')).map((m) => m.path);
+    throw new HttpError(400, `no mailbox "${mailbox}"; there are: ${names.join(', ')}`);
+  }
+  try {
+    return await fn();
+  } finally {
+    lock.release();
+  }
+}
+
+// mailbox undefined: Gmail's All Mail (what Gmail's own search covers), iCloud's INBOX
+async function withMailbox<T>(a: Account, mailbox: string | undefined, fn: (client: ImapFlow, mailbox: string) => Promise<T>): Promise<T> {
+  return withClient(a, async (client) => {
+    if (mailbox === undefined && a.gmail) {
+      mailbox = (await client.list()).find((m) => m.specialUse === '\\All')?.path;
+      if (!mailbox) throw new HttpError(503, `${label(a)} doesn't show All Mail over IMAP: enable "Show in IMAP" for it in Gmail's label settings, or name a mailbox`);
+    }
+    const box = mailbox ?? 'INBOX';
+    return inMailbox(client, box, () => fn(client, box));
+  });
 }
 
 // Hide My Email relays a sender as news_at_example_com_abc123def456_xyz789@icloud.com: shown as news@example.com
@@ -157,20 +168,39 @@ export async function readMail(q: Query) {
     groups.set(key, g);
   }
   const mails: Record<string, unknown>[] = [];
+  const fetchInto = async (client: ImapFlow, acct: Account, mailbox: string, uids: number[]) => {
+    const got = await client.fetchAll(uids, { uid: true, emailId: acct.gmail, internalDate: true, flags: true, source: { maxLength: MAX_SOURCE } }, { uid: true });
+    for (const m of got) {
+      const p = await simpleParser(m.source ?? Buffer.alloc(0));
+      mails.push({
+        id: mailId(acct, mailbox, m), date: time(p.date ?? m.internalDate), from: parsedAddress(p.from), to: parsedAddress(p.to),
+        cc: parsedAddress(p.cc), subject: p.subject ?? '', unread: !m.flags?.has('\\Seen'),
+        body: clip((p.text ?? '').replace(/\n{3,}/g, '\n\n').trim(), MAX_BODY),
+        attachments: p.attachments.filter((a) => a.contentDisposition !== 'inline').map((a) => a.filename ?? a.contentType),
+      });
+    }
+    return got.map((m) => m.emailId);
+  };
   for (const g of groups.values()) {
     const acct = account(g.name);
-    await withMailbox(acct, g.mailbox, async (client, mailbox) => {
-      // Spam and Trash aren't in All Mail: their messages come back as not found
-      for (const emailId of g.gmailIds) g.uids.push(...((await client.search({ emailId }, { uid: true })) || []));
-      if (!g.uids.length) return;
-      const got = await client.fetchAll(g.uids, { uid: true, emailId: acct.gmail, internalDate: true, flags: true, source: { maxLength: MAX_SOURCE } }, { uid: true });
-      for (const m of got) {
-        const p = await simpleParser(m.source ?? Buffer.alloc(0));
-        mails.push({
-          id: mailId(acct, mailbox, m), date: time(p.date ?? m.internalDate), from: parsedAddress(p.from), to: parsedAddress(p.to),
-          cc: parsedAddress(p.cc), subject: p.subject ?? '', unread: !m.flags?.has('\\Seen'),
-          body: clip((p.text ?? '').replace(/\n{3,}/g, '\n\n').trim(), MAX_BODY),
-          attachments: p.attachments.filter((a) => a.contentDisposition !== 'inline').map((a) => a.filename ?? a.contentType),
+    if (!acct.gmail) {
+      await withMailbox(acct, g.mailbox, (client, mailbox) => fetchInto(client, acct, mailbox, g.uids));
+      continue;
+    }
+    await withClient(acct, async (client) => {
+      // All Mail first, then Spam and Trash, which it leaves out; without All Mail shown over IMAP, every mailbox
+      const boxes = (await client.list()).filter((m) => !m.flags.has('\\Noselect'));
+      const all = boxes.find((m) => m.specialUse === '\\All');
+      const order = all ? [all, ...boxes.filter((m) => m.specialUse === '\\Junk' || m.specialUse === '\\Trash')] : boxes;
+      let left = g.gmailIds;
+      for (const box of order) {
+        if (!left.length) break;
+        await inMailbox(client, box.path, async () => {
+          const uids: number[] = [];
+          for (const emailId of left) uids.push(...((await client.search({ emailId }, { uid: true })) || []));
+          if (!uids.length) return;
+          const found = await fetchInto(client, acct, box.path, uids);
+          left = left.filter((id) => !found.includes(id));
         });
       }
     });
