@@ -13,7 +13,7 @@ test('Gmail ids and iCloud ids never collide; legacy iCloud ids keep their meani
   assert.deepEqual(splitMailId('personal#1781234567890123456'), { name: 'personal', gmailId: '1781234567890123456' });
   // a mailbox containing # still ends in :<uid>, so it is iCloud
   assert.deepEqual(splitMailId('personal#1:5'), { name: 'icloud', mailbox: 'personal#1', uid: 5 });
-  for (const bad of ['INBOX', 'personal#', 'Personal#12', 'personal#12x', '#12'])
+  for (const bad of ['INBOX', 'personal#', 'Personal#12', 'personal#12x', '#12', 'icloud#12'])
     assert.equal(splitMailId(bad), undefined, bad);
 });
 

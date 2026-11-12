@@ -36,7 +36,7 @@ const mailId = (a: Account, mailbox: string, m: FetchMessageObject) => (a.gmail 
 /** An id from GET /mail as account and either a Gmail message id or an iCloud mailbox and uid; undefined if it isn't one. */
 export function splitMailId(id: string): { name: string; gmailId: string } | { name: string; mailbox: string; uid: number } | undefined {
   const g = GMAIL_ID.exec(id);
-  if (g) return { name: g[1], gmailId: g[2] };
+  if (g) return g[1] === ICLOUD ? undefined : { name: g[1], gmailId: g[2] };
   const m = /^(.+):(\d+)$/.exec(id);
   return m ? { name: ICLOUD, mailbox: m[1], uid: Number(m[2]) } : undefined;
 }
