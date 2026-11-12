@@ -26,14 +26,15 @@ jobs:
       NAME: ${{ github.workflow }}
       CONCLUSION: ${{ inputs.failed && 'failure' || 'success' }}
       EVENT: ${{ github.event_name }}
+      REF: ${{ github.ref }}
       BRANCH: ${{ github.ref_name }}
       SHA: ${{ github.sha }}
       URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - run: |
           if [[ $EVENT == pull_request ]]; then echo 'a pull request: nothing to report'; exit 0; fi
-          # Runs on a tag publish images: one issue for all of them, another for main
-          if [[ $BRANCH == v* ]]; then where='release tags'; else where=$BRANCH; fi
+          # Runs on a tag publish one service's image: one issue per service (api/v1.2.3), another for main
+          if [[ $REF == refs/tags/* ]]; then where="${BRANCH%%/*} release tags"; else where=$BRANCH; fi
           title="$NAME failing on $where"
           issue=$(gh issue list --label ci-failure --state open --json number,title \
             | jq -r --arg t "$title" '[.[] | select(.title == $t)][0].number // empty')

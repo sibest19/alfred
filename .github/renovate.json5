@@ -1,6 +1,5 @@
 // Renovate (GitHub app): one pull request per update, merged by Renovate itself once CI is green
-// (build, smoke test against WhatsApp, images). Updates of what goes into the images carry the "release"
-// label, and release.yml ships them as the next patch version.
+// (build, smoke test against WhatsApp, images). release.yml ships the services an update changes.
 {
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   extends: ['config:recommended', 'docker:pinDigests', 'helpers:pinGitHubActionDigests'],
@@ -15,7 +14,6 @@
     enabled: true,
     automerge: true,
     schedule: ['before 6am on monday'],
-    addLabels: ['release'],
   },
   packageRules: [
     {
@@ -62,16 +60,6 @@
       matchPackageNames: ['@types/node'],
       matchUpdateTypes: ['major'],
       enabled: false,
-    },
-    // What ends up in the images
-    {
-      matchManagers: ['npm'],
-      matchDepTypes: ['dependencies'],
-      addLabels: ['release'],
-    },
-    {
-      matchManagers: ['dockerfile', 'pip_requirements'],
-      addLabels: ['release'],
     },
     // The onnxruntime versions onnx-asr excludes, for the OpenVINO build too (see transcriber/requirements.txt)
     {
