@@ -50,6 +50,12 @@
       matchUpdateTypes: ['digest'],
       minimumReleaseAgeBehaviour: 'timestamp-optional',
     },
+    // A rebuilt image's digest has no release date: without this its stability check stays pending and it never merges
+    {
+      matchManagers: ['dockerfile', 'docker-compose'],
+      matchUpdateTypes: ['digest'],
+      minimumReleaseAgeBehaviour: 'timestamp-optional',
+    },
     // Baileys follows WhatsApp's changes, so its fixes are wanted soon; the smoke test checks the handshake
     {
       matchPackageNames: ['baileys'],
