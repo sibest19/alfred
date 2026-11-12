@@ -75,11 +75,12 @@ test('configuration rejects unsafe origins, shared credentials and invalid ports
   }
 });
 
-test('MCP initializes and advertises exactly five read-only tools', async () => {
+test('MCP initializes and advertises exactly eight read-only tools', async () => {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
   assert.equal(init.result.protocolVersion, '2025-06-18');
   const result = await rpc('tools/list');
   assert.deepEqual(result.result.tools.map((t: { name: string }) => t.name).sort(), [
+    'calendar_events', 'mail_read', 'mail_search',
     'whatsapp_context', 'whatsapp_find_chat', 'whatsapp_find_contact', 'whatsapp_search', 'whatsapp_stats',
   ]);
   for (const tool of result.result.tools) {
@@ -89,13 +90,16 @@ test('MCP initializes and advertises exactly five read-only tools', async () => 
   assert.equal(calls.length, 0);
 });
 
-test('all five tools use fixed GET paths and only the upstream credential', async () => {
+test('all eight tools use fixed GET paths and only the upstream credential', async () => {
   const cases: [string, Record<string, unknown>, string][] = [
     ['whatsapp_search', { q: 'cena & sabato', sender: 'me', limit: 5 }, '/messages'],
     ['whatsapp_context', { id: 42, before: 2, after: 3 }, '/messages/42/context'],
     ['whatsapp_stats', { group_by: 'day' }, '/stats'],
     ['whatsapp_find_chat', { q: 'Weekend' }, '/chats'],
     ['whatsapp_find_contact', { q: 'Rossi' }, '/contacts'],
+    ['mail_search', { q: 'fattura', unread: true, limit: 5 }, '/mail'],
+    ['mail_read', { ids: ['INBOX:4521', 'Archive:7'] }, '/mail/read'],
+    ['calendar_events', { from: '2026-11-12', to: '2026-11-19' }, '/calendar/events'],
   ];
   for (const [name, args, path] of cases) {
     const answer = await call(name, args);
@@ -108,7 +112,9 @@ test('all five tools use fixed GET paths and only the upstream credential', asyn
   const search = new URL(calls[0].path, 'http://api');
   assert.equal(search.searchParams.get('q'), 'cena & sabato');
   assert.equal(search.searchParams.get('sender'), 'me');
-  assert.equal(calls.length, 5);
+  assert.equal(new URL(calls[5].path, 'http://api').searchParams.get('unread'), 'true');
+  assert.equal(new URL(calls[6].path, 'http://api').searchParams.get('ids'), 'INBOX:4521,Archive:7');
+  assert.equal(calls.length, 8);
 });
 
 test('unknown tools, injected URLs, invalid IDs and excessive limits never reach the API', async () => {
@@ -116,6 +122,8 @@ test('unknown tools, injected URLs, invalid IDs and excessive limits never reach
     ['delete_event', {}], ['whatsapp_search', { url: 'http://evil.test' }],
     ['whatsapp_context', { id: '../../notes' }], ['whatsapp_search', { limit: 101 }],
     ['whatsapp_context', { id: 1, before: 51 }], ['whatsapp_find_contact', { q: '   ' }],
+    ['mail_read', { ids: [] }], ['mail_read', { ids: ['INBOX:1,INBOX:2'] }], ['mail_read', { ids: ['../x'] }],
+    ['mail_search', { limit: 51 }], ['calendar_events', { calendar: 'x', url: 'http://evil.test' }],
   ] as [string, Record<string, unknown>][]) {
     const answer = await call(name, args);
     assert.ok(answer.error || answer.result?.isError, name);

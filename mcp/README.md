@@ -1,9 +1,12 @@
-# WhatsApp MCP adapter
+# Alfred MCP adapter
 
 Stateless Streamable HTTP MCP at `POST /mcp`, using the official TypeScript SDK.
-Five read-only tools: `whatsapp_search`, `whatsapp_context`, `whatsapp_stats`,
-`whatsapp_find_chat` and `whatsapp_find_contact`. All call fixed GET routes on
-Alfred's API. No SQL access, writes, generic URLs or filesystem tools.
+Eight read-only tools: `whatsapp_search`, `whatsapp_context`, `whatsapp_stats`,
+`whatsapp_find_chat`, `whatsapp_find_contact` (scope `archive.read`), `mail_search`,
+`mail_read` (iCloud Mail, `mail.read`) and `calendar_events` (iCloud Calendar,
+`calendar.read`). All call fixed GET routes on Alfred's API; its credential needs the
+scopes of the tools the client should be able to use, and a missing scope is a 403
+the tool reports. No SQL access, writes, generic URLs or filesystem tools.
 
 ## Credentials and configuration
 
