@@ -8,7 +8,7 @@ import { createDAVClient, type DAVCalendar, type DAVCalendarObject } from 'tsdav
 import { day, dayAfter, fromWall, wall, wallMs, weekday, when, type When } from './clock.js';
 import { config } from './config.js';
 import { HttpError, param, text, tz, type Query } from './http.js';
-import { radicale, radicaleConfigured, type Dav } from './radicale.js';
+import { collectionNames, nameIn, radicale, radicaleConfigured, type Dav } from './radicale.js';
 
 const DEFAULT_DAYS = 7;
 const MAX_DAYS = 366;
@@ -58,7 +58,7 @@ async function dav(strict: boolean) {
   if (failed.length && (strict || !calendars.length)) throw failed[0];
   if (!calendars.length) throw new HttpError(503, 'no calendar holds events: the configured servers have only to-do lists or nothing');
   // names are numbered over every server's calendars: keep the last complete list
-  if (!failed.length) allCalendars = calendars;
+  if (!failed.length) names = collectionNames(calendars);
   return { calendars, clientOf: (c: DAVCalendar) => clients.get(c.url)!, failed };
 }
 
@@ -80,15 +80,9 @@ async function icloud() {
   }
 }
 
-let allCalendars: DAVCalendar[] = [];
-const baseName = (c: DAVCalendar) => (typeof c.displayName === 'string' && c.displayName.trim()) || c.url.split('/').filter(Boolean).pop()!;
-
-/** The calendar's name, with " (2)", " (3)" after the first of several with the same name, so a name picks one. */
-function calendarName(c: DAVCalendar): string {
-  const same = (allCalendars.length ? allCalendars : [c]).filter((o) => baseName(o) === baseName(c));
-  const n = same.findIndex((o) => o.url === c.url);
-  return n > 0 ? `${baseName(c)} (${n + 1})` : baseName(c);
-}
+let names = new Map<string, string>();
+/** The calendar's name, numbered when several share it, so a name picks one. */
+const calendarName = (c: DAVCalendar) => nameIn(names, c);
 
 function pickCalendar(calendars: DAVCalendar[], name: string): DAVCalendar {
   const wanted = name || config.icloud.calendar;

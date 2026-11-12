@@ -20,6 +20,36 @@ export type Dav = {
 
 let session: { client: Dav; calendars: DAVCalendar[]; at: number } | undefined;
 
+const baseName = (c: DAVCalendar) => (typeof c.displayName === 'string' && c.displayName.trim()) || c.url.split('/').filter(Boolean).pop()!;
+
+/**
+ * A name per collection (by URL) that picks exactly one, ignoring case as the lookups do: each display name as it is
+ * for the first collection carrying it, unless another collection's own name already is that; the others get the
+ * first free " (2)", " (3)"…
+ */
+export function collectionNames(collections: DAVCalendar[]): Map<string, string> {
+  const names = new Map<string, string>();
+  const used = new Set<string>();
+  for (const c of collections) {
+    const name = baseName(c);
+    if (!used.has(name.toLowerCase())) {
+      used.add(name.toLowerCase());
+      names.set(c.url, name);
+    }
+  }
+  for (const c of collections) {
+    if (names.has(c.url)) continue;
+    let n = 2;
+    while (used.has(`${baseName(c)} (${n})`.toLowerCase())) n++;
+    used.add(`${baseName(c)} (${n})`.toLowerCase());
+    names.set(c.url, `${baseName(c)} (${n})`);
+  }
+  return names;
+}
+
+/** The collection's name from `names`, or its own when it isn't there. */
+export const nameIn = (names: Map<string, string>, c: DAVCalendar) => names.get(c.url) ?? baseName(c);
+
 export const radicaleConfigured = () => Boolean(config.radicale.url && config.radicale.user && config.radicale.password);
 
 /** The client and every collection under the home, VEVENT and VTODO alike. */

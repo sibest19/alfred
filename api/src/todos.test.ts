@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import ICAL from 'ical.js';
 import { fromWall } from './clock.js';
+import { collectionNames } from './radicale.js';
 import { complete, newTodo, rename, setDue, vtodoOf } from './todos.js';
 
 const lines = (ics: string) => ics.split('\r\n');
@@ -112,4 +113,22 @@ test('a new due time keeps the start-to-due distance and a phone\'s advance alar
   assert.equal(vtodo.getFirstProperty('dtstart')!.toICALString(), 'DTSTART;TZID=Europe/Rome:20261120T100000');
   assert.equal(vtodo.getAllSubcomponents('valarm').length, 1);
   assert.equal(vtodo.getFirstSubcomponent('valarm')!.getFirstProperty('trigger')!.toICALString(), 'TRIGGER:-PT15M');
+});
+
+test('a repeating to-do skips its excluded occurrences, which still count towards COUNT, and refuses extra dates', () => {
+  const vtodo = phone('DTSTART:20261113T080000Z\r\nDUE:20261113T080000Z\r\nRRULE:FREQ=DAILY;COUNT=5\r\nEXDATE:20261114T080000Z\r\n');
+  complete(vtodo, fromWall(2026, 11, 13, 10, 0));
+  assert.equal(vtodo.getFirstProperty('due')!.toICALString(), 'DUE:20261115T080000Z');
+  // 13, 14 (excluded) passed: 15, 16 and 17 are left
+  assert.equal((vtodo.getFirstPropertyValue('rrule') as ICAL.Recur).count, 3);
+  const extra = phone('DTSTART:20261113T080000Z\r\nDUE:20261113T080000Z\r\nRRULE:FREQ=WEEKLY\r\nRDATE:20261115T080000Z\r\n');
+  assert.throws(() => complete(extra, fromWall(2026, 11, 13, 10, 0)), /RDATE/);
+});
+
+test('collection names pick exactly one, ignoring case', () => {
+  const named = (...names: string[]) => [...collectionNames(names.map((displayName, i) => ({ url: `u${i}`, displayName }))).values()];
+  const labels = collectionNames(['Family', 'Family', 'Family (2)'].map((displayName, i) => ({ url: `u${i}`, displayName })));
+  assert.deepEqual([labels.get('u0'), labels.get('u1'), labels.get('u2')], ['Family', 'Family (3)', 'Family (2)']);
+  assert.deepEqual(named('Work', 'work'), ['Work', 'work (2)']);
+  assert.equal(new Set(named('A', 'a', 'A (2)', 'a').map((n) => n.toLowerCase())).size, 4);
 });

@@ -7,27 +7,21 @@ import ICAL from 'ical.js';
 import type { DAVCalendar } from 'tsdav';
 import { day, fromWall, wall, weekday, when } from './clock.js';
 import { HttpError, param, text, tz, type Query } from './http.js';
-import { radicale, type Dav } from './radicale.js';
+import { collectionNames, nameIn, radicale, type Dav } from './radicale.js';
 
 const MAX_TEXT = 500;
 const MAX_LISTED = 200;
 const VTODO_FILTER = [{ 'comp-filter': { _attributes: { name: 'VCALENDAR' }, 'comp-filter': { _attributes: { name: 'VTODO' } } } }];
 
-const baseName = (c: DAVCalendar) => (typeof c.displayName === 'string' && c.displayName.trim()) || c.url.split('/').filter(Boolean).pop()!;
-let allLists: DAVCalendar[] = [];
-
-/** The list's name, with " (2)", " (3)" after the first of several with the same name, so a name picks one. */
-function listName(c: DAVCalendar): string {
-  const same = (allLists.length ? allLists : [c]).filter((o) => baseName(o) === baseName(c));
-  const n = same.findIndex((o) => o.url === c.url);
-  return n > 0 ? `${baseName(c)} (${n + 1})` : baseName(c);
-}
+let names = new Map<string, string>();
+/** The list's name, numbered when several share it, so a name picks one. */
+const listName = (c: DAVCalendar) => nameIn(names, c);
 
 async function lists(): Promise<{ client: Dav; lists: DAVCalendar[] }> {
   const { client, calendars } = await radicale();
   const found = calendars.filter((c) => c.components?.includes('VTODO'));
   if (!found.length) throw new HttpError(503, 'Radicale has no to-do list under RADICALE_HOME');
-  allLists = found;
+  names = collectionNames(found);
   return { client, lists: found };
 }
 
@@ -182,6 +176,10 @@ export function complete(vtodo: ICAL.Component, now: Date): { next: Date | null 
   const dueProp = vtodo.getFirstProperty('due');
   const startProp = vtodo.getFirstProperty('dtstart');
   if (rrule && dueProp) {
+    // extra dates would need the whole recurrence set (and the phones don't write them): refuse rather than miss them
+    if (vtodo.hasProperty('rdate')) throw new HttpError(400, 'the reminder repeats on extra dates (RDATE) too: complete it on the phone, or give it a new due time');
+    // excluded occurrences are skipped, but still count towards a COUNT, as iCalendar counts them
+    const excluded = new Set(vtodo.getAllProperties('exdate').flatMap((p) => p.getValues() as ICAL.Time[]).map((t) => wallOf(t).at.getTime()));
     const due = dueProp.getFirstValue() as ICAL.Time;
     // the occurrences are DTSTART's, in its own zone
     const start = (startProp?.getFirstValue() as ICAL.Time | undefined) ?? due;
@@ -189,6 +187,7 @@ export function complete(vtodo: ICAL.Component, now: Date): { next: Date | null 
     const it = rrule.iterator(start);
     for (let t = it.next(), index = 0; t; t = it.next(), index++) {
       if (index >= MAX_STEPS) throw new HttpError(400, 'the reminder is too far behind its repeat to step through: give it a new due time instead');
+      if (excluded.has(wallOf(t).at.getTime())) continue;
       const next = dueAfter(t, start, due);
       const at = wallOf(next).at;
       if (at <= now || at <= current) continue;
