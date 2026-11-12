@@ -3,9 +3,10 @@ name: image
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    # One release line per service: api/v1.2.3 publishes ghcr.io/<owner>/<repo>-api:1.2.3
+    tags: ['*/v*']
   pull_request:
-  # release.yml starts it on the tag it creates (a tag pushed with GITHUB_TOKEN starts no workflow)
+  # release.yml starts it on the tags it creates (a tag pushed with GITHUB_TOKEN starts no workflow)
   workflow_dispatch:
   # Daily smoke test of main: WhatsApp can break the current Baileys without any change here
   schedule:
@@ -92,11 +93,14 @@ jobs:
       - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends espeak-ng
       - run: smoke/transcriber.sh
 
-  # One image per service: ghcr.io/<owner>/<repo>-<service>, exact version tags only (the stack pins one)
+  # One image per service: ghcr.io/<owner>/<repo>-<service>, exact version tags only (the stack pins each)
   image:
     needs: [build, smoke, transcriber]
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    env:
+      # On a release tag only the tagged service is built and pushed; the others pass as empty jobs
+      SKIP: ${{ startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref_name, format('{0}/v', matrix.service)) }}
     strategy:
       matrix:
         include:
@@ -123,26 +127,31 @@ jobs:
             platforms: linux/amd64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: env.SKIP == 'false'
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
+        if: env.SKIP == 'false'
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        if: env.SKIP == 'false'
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.SKIP == 'false' && startsWith(github.ref, 'refs/tags/')
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
+        if: env.SKIP == 'false'
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ghcr.io/${{ github.repository }}-${{ matrix.service }}
-          # v1.2.3 -> 1.2.3
-          tags: type=semver,pattern={{version}}
+          # api/v1.2.3 -> 1.2.3
+          tags: type=match,pattern=/v(\d+\.\d+\.\d+)$,group=1
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        if: env.SKIP == 'false'
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platforms }}
-          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service }}

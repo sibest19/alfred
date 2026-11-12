@@ -15,10 +15,26 @@ on:
         required: true
 
 jobs:
-  alert:
+  # Runs on a tag publish one service's image: one issue per service (api/v1.2.3), another for main
+  where:
     runs-on: ubuntu-latest
+    outputs:
+      where: ${{ steps.where.outputs.where }}
+    steps:
+      - id: where
+        env:
+          REF: ${{ github.ref }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [[ $REF == refs/tags/* ]]; then where="${BRANCH%%/*} release tags"; else where=$BRANCH; fi
+          echo "where=$where" >> "$GITHUB_OUTPUT"
+
+  alert:
+    needs: where
+    runs-on: ubuntu-latest
+    # One queue per issue: the group keeps a single pending run, so a shared one would drop other services' alerts
     concurrency:
-      group: alert-${{ github.workflow }}
+      group: alert-${{ github.workflow }}-${{ needs.where.outputs.where }}
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
@@ -27,14 +43,13 @@ jobs:
       CONCLUSION: ${{ inputs.failed && 'failure' || 'success' }}
       EVENT: ${{ github.event_name }}
       BRANCH: ${{ github.ref_name }}
+      WHERE: ${{ needs.where.outputs.where }}
       SHA: ${{ github.sha }}
       URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - run: |
           if [[ $EVENT == pull_request ]]; then echo 'a pull request: nothing to report'; exit 0; fi
-          # Runs on a tag publish images: one issue for all of them, another for main
-          if [[ $BRANCH == v* ]]; then where='release tags'; else where=$BRANCH; fi
-          title="$NAME failing on $where"
+          title="$NAME failing on $WHERE"
           issue=$(gh issue list --label ci-failure --state open --json number,title \
             | jq -r --arg t "$title" '[.[] | select(.title == $t)][0].number // empty')
           run="[$NAME run]($URL) ($EVENT on \`$BRANCH\`, ${SHA:0:7}): $CONCLUSION"
