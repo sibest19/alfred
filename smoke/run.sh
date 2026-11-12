@@ -163,7 +163,7 @@ async function rpc(method, params = {}, credential = token) {
 const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } });
 assert.equal(init.result.protocolVersion, '2025-06-18');
 const list = await rpc('tools/list');
-assert.equal(list.result.tools.length, 8);
+assert.equal(list.result.tools.length, 16);
 for (const [name, args] of [
   ['whatsapp_search', { sender: 'me' }], ['whatsapp_stats', {}],
   ['whatsapp_find_chat', {}], ['whatsapp_find_contact', { q: 'smoke' }],
@@ -174,9 +174,10 @@ for (const [name, args] of [
 const missing = await rpc('tools/call', { name: 'whatsapp_context', arguments: { id: 999999 } });
 assert.equal(missing.result.isError, true);
 assert.match(missing.result.content[0].text, /HTTP 404/);
-// The smoke credential has only archive.read: mail and calendar stop at the API with advice naming the scope
-for (const [name, scope] of [['mail_search', 'mail.read'], ['calendar_events', 'calendar.read']]) {
-  const reply = await rpc('tools/call', { name, arguments: {} });
+// The smoke credential has only archive.read: mail, calendar and reminders stop at the API with advice naming the scope
+for (const [name, scope, args] of [['mail_search', 'mail.read', {}], ['calendar_events', 'calendar.read', {}],
+  ['reminders_list', 'todos.read', {}], ['reminder_create', 'todos.manage', { title: 'smoke' }]]) {
+  const reply = await rpc('tools/call', { name, arguments: args });
   assert.equal(reply.result.isError, true);
   assert.match(reply.result.content[0].text, new RegExp('HTTP 403.*' + scope.replace('.', '\\.')));
 }

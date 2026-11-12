@@ -6,12 +6,14 @@ import { createService } from './server.js';
 
 const apiToken = 'scoped-api-test-0123456789'; // gitleaks:allow -- synthetic test credential
 const mcpToken = 'mcp-client-test-0123456789';
-const calls: { path: string; method?: string; token?: string }[] = [];
+const calls: { path: string; method?: string; token?: string; body?: string }[] = [];
 let mode = 'ok';
 let mcp: Server;
 let url: string;
-const upstream = createServer((req, res) => {
-  calls.push({ path: req.url!, method: req.method, token: req.headers.authorization });
+const upstream = createServer(async (req, res) => {
+  let body = '';
+  for await (const chunk of req) body += chunk;
+  calls.push({ path: req.url!, method: req.method, token: req.headers.authorization, body });
   if (mode === 'redirect') { res.writeHead(302, { Location: url + '/trap' }).end(); return; }
   if (['400', '401', '404', '429', '503'].includes(mode)) { res.writeHead(Number(mode)).end(apiToken); return; }
   if (mode === 'failure') { res.writeHead(403).end(apiToken); return; }
@@ -54,7 +56,8 @@ const call = (name: string, args: Record<string, unknown> = {}) => rpc('tools/ca
 
 before(async () => {
   const apiUrl = await listen(upstream);
-  mcp = createService(loadConfig({ ALFRED_API_URL: apiUrl, ALFRED_API_TOKEN: apiToken, MCP_TOKEN: mcpToken }));
+  // the suite makes more calls than the default limit allows per minute
+  mcp = createService(loadConfig({ ALFRED_API_URL: apiUrl, ALFRED_API_TOKEN: apiToken, MCP_TOKEN: mcpToken, MCP_RATE_LIMIT: '200' }));
   url = await listen(mcp);
 });
 after(async () => { await close(mcp); await close(upstream); });
@@ -75,22 +78,25 @@ test('configuration rejects unsafe origins, shared credentials and invalid ports
   }
 });
 
-test('MCP initializes and advertises exactly eight read-only tools', async () => {
+const READ_TOOLS = [
+  'calendar_events', 'mail_read', 'mail_search', 'reminders_list',
+  'whatsapp_context', 'whatsapp_find_chat', 'whatsapp_find_contact', 'whatsapp_search', 'whatsapp_stats',
+];
+const WRITE_TOOLS = ['event_create', 'event_delete', 'event_update', 'reminder_complete', 'reminder_create', 'reminder_delete', 'reminder_update'];
+
+test('MCP initializes and advertises its read-only and write tools', async () => {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
   assert.equal(init.result.protocolVersion, '2025-06-18');
   const result = await rpc('tools/list');
-  assert.deepEqual(result.result.tools.map((t: { name: string }) => t.name).sort(), [
-    'calendar_events', 'mail_read', 'mail_search',
-    'whatsapp_context', 'whatsapp_find_chat', 'whatsapp_find_contact', 'whatsapp_search', 'whatsapp_stats',
-  ]);
+  assert.deepEqual(result.result.tools.map((t: { name: string }) => t.name).sort(), [...READ_TOOLS, ...WRITE_TOOLS].sort());
   for (const tool of result.result.tools) {
-    assert.equal(tool.annotations.readOnlyHint, true);
+    assert.equal(tool.annotations.readOnlyHint, READ_TOOLS.includes(tool.name), tool.name);
     assert.equal(tool.inputSchema.additionalProperties, false);
   }
   assert.equal(calls.length, 0);
 });
 
-test('all eight tools use fixed GET paths and only the upstream credential', async () => {
+test('the read tools use fixed GET paths and only the upstream credential', async () => {
   const cases: [string, Record<string, unknown>, string][] = [
     ['whatsapp_search', { q: 'cena & sabato', sender: 'me', limit: 5 }, '/messages'],
     ['whatsapp_context', { id: 42, before: 2, after: 3 }, '/messages/42/context'],
@@ -100,6 +106,7 @@ test('all eight tools use fixed GET paths and only the upstream credential', asy
     ['mail_search', { account: 'personal', q: 'fattura', unread: true, limit: 5 }, '/mail'],
     ['mail_read', { ids: ['INBOX:4521', 'personal#1781234567890123456'] }, '/mail/read'],
     ['calendar_events', { from: '2026-11-12', to: '2026-11-19' }, '/calendar/events'],
+    ['reminders_list', { q: 'dentist', done: true }, '/todos'],
   ];
   for (const [name, args, path] of cases) {
     const answer = await call(name, args);
@@ -115,7 +122,33 @@ test('all eight tools use fixed GET paths and only the upstream credential', asy
   assert.equal(new URL(calls[5].path, 'http://api').searchParams.get('unread'), 'true');
   assert.equal(new URL(calls[5].path, 'http://api').searchParams.get('account'), 'personal');
   assert.equal(new URL(calls[6].path, 'http://api').searchParams.get('ids'), 'INBOX:4521,personal#1781234567890123456');
-  assert.equal(calls.length, 8);
+  assert.equal(new URL(calls[8].path, 'http://api').searchParams.get('done'), 'true');
+  assert.equal(calls.length, 9);
+});
+
+test('the write tools call fixed paths with their method and a JSON body', async () => {
+  const cases: [string, Record<string, unknown>, string, string, Record<string, unknown> | undefined][] = [
+    ['event_create', { title: 'Dinner', start: '2026-11-13 20:00', all_day: false, calendar: 'Family' }, 'POST', '/calendar/events',
+      { title: 'Dinner', start: '2026-11-13 20:00', all_day: 'false', calendar: 'Family' }],
+    ['event_update', { id: '3fa2b9c1', start: '2026-11-14 20:00', occurrence: '2026-11-13', series: true }, 'PATCH', '/calendar/events/3fa2b9c1',
+      { start: '2026-11-14 20:00', occurrence: '2026-11-13', series: 'true' }],
+    ['event_delete', { id: '3fa2b9c1', occurrence: '2026-11-13' }, 'DELETE', '/calendar/events/3fa2b9c1', undefined],
+    ['reminder_create', { title: 'Call the plumber', due: '2026-11-13 15:00', repeat: 'FREQ=WEEKLY;BYDAY=MO' }, 'POST', '/todos',
+      { title: 'Call the plumber', due: '2026-11-13 15:00', repeat: 'FREQ=WEEKLY;BYDAY=MO' }],
+    ['reminder_update', { id: '0a1b2c3d', due: '-' }, 'PATCH', '/todos/0a1b2c3d', { due: '-' }],
+    ['reminder_complete', { id: '0a1b2c3d' }, 'POST', '/todos/0a1b2c3d/done', undefined],
+    ['reminder_delete', { id: '0a1b2c3d' }, 'DELETE', '/todos/0a1b2c3d', undefined],
+  ];
+  for (const [name, args, method, path, body] of cases) {
+    const answer = await call(name, args);
+    assert.ok(!answer.error && !answer.result.isError, name);
+    const sent = calls.at(-1)!;
+    assert.equal(sent.method, method, name);
+    assert.equal(new URL(sent.path, 'http://api').pathname, path, name);
+    assert.equal(sent.token, 'Bearer ' + apiToken);
+    assert.deepEqual(sent.body ? JSON.parse(sent.body) : undefined, body, name);
+  }
+  assert.equal(new URL(calls[2].path, 'http://api').searchParams.get('occurrence'), '2026-11-13');
 });
 
 test('unknown tools, injected URLs, invalid IDs and excessive limits never reach the API', async () => {
@@ -125,6 +158,9 @@ test('unknown tools, injected URLs, invalid IDs and excessive limits never reach
     ['whatsapp_context', { id: 1, before: 51 }], ['whatsapp_find_contact', { q: '   ' }],
     ['mail_read', { ids: [] }], ['mail_read', { ids: ['INBOX:1,INBOX:2'] }], ['mail_read', { ids: ['../x'] }], ['mail_read', { ids: ['INBOX\n:1'] }],
     ['mail_search', { limit: 51 }], ['mail_search', { account: '../x' }], ['mail_read', { ids: ['Personal#1'] }], ['mail_read', { ids: ['personal#1,2'] }], ['calendar_events', { calendar: 'x', url: 'http://evil.test' }],
+    ['event_delete', { id: '../todos' }], ['event_update', { id: '3FA2B9C1' }], ['reminder_complete', { id: '0a1b2c3' }],
+    ['reminder_delete', {}], ['reminder_create', { due: '2026-11-13' }], ['reminder_create', { title: 'x', repeat: 'FREQ=DAILY\nX' }],
+    ['event_create', { title: 'x' }],
   ] as [string, Record<string, unknown>][]) {
     const answer = await call(name, args);
     assert.ok(answer.error || answer.result?.isError, name);
@@ -246,6 +282,17 @@ test('concurrency limit blocks upstream overload and recovers after completion',
   } finally { unblock(); await close(limited); await close(slow); }
 });
 
+
+test('a write without a clear answer reports an unknown outcome instead of advising a retry', async () => {
+  for (const failure of ['503', 'invalid']) {
+    mode = failure;
+    const reply = await call('reminder_create', { title: 'x' });
+    assert.equal(reply.result.isError, true);
+    const text = JSON.stringify(reply);
+    assert.match(text, /outcome is unknown.*List the reminders/);
+    assert.doesNotMatch(text, /Retry later/);
+  }
+});
 
 test('upstream errors give recovery advice without upstream text or credentials', async () => {
   for (const [status, advice] of [
