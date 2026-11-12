@@ -51,7 +51,8 @@ jobs:
             # Compared with the last release, not the previous push: a run cancelled while queued (the concurrency
             # group keeps one pending run) loses nothing. A commit given by hand must come after that release.
             if ! git merge-base --is-ancestor "$last" "$SHA"; then echo "$service: $SHA does not follow $last"; continue; fi
-            git diff --name-only "$last" "$SHA" | grep -v '\.md$' | grep -qE "${inputs[$service]}" || continue
+            # Without rename detection, a file moved out of a service counts for that service too
+            git diff --name-only --no-renames "$last" "$SHA" | grep -v '\.md$' | grep -qE "${inputs[$service]}" || continue
             IFS=. read -r major minor patch <<< "${last#*v}"
             next="$service/v$major.$minor.$((patch + 1))"
             echo "$last -> $next"
