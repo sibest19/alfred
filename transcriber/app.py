@@ -15,9 +15,11 @@ from pathlib import Path
 
 import numpy as np
 import onnx_asr
-from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi import FastAPI, HTTPException, Request
 from huggingface_hub import snapshot_download
 from starlette.concurrency import run_in_threadpool
+# request.form() returns Starlette's UploadFile; FastAPI's is a subclass, so isinstance against it is always False
+from starlette.datastructures import UploadFile
 
 MODEL_REPO = os.environ.get("MODEL_REPO", "Masterx/parakeet-tdt-0.6b-ultra-onnx")
 MODEL_TYPE = os.environ.get("MODEL_TYPE", "nemo-parakeet-tdt-0.6b-v3")

@@ -62,4 +62,11 @@ if [ "$heard" -lt 3 ]; then
   echo "FAIL: transcript has $heard of the 5 key words"
   exit 1
 fi
+# OpenAI-compatible multipart upload, as OpenAI clients (Hermes's speech-to-text) send it
+out=$(curl -sf -F "file=@$clip" -F model=whisper-1 http://127.0.0.1:18082/v1/audio/transcriptions)
+echo "multipart transcript: $out"
+[[ $(tr '[:upper:]' '[:lower:]' <<<"$out") == *fox* ]] || {
+  echo 'FAIL: multipart upload not transcribed'
+  exit 1
+}
 echo 'transcriber smoke test passed'
