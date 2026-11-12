@@ -14,7 +14,8 @@ const filters = {
 };
 const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const date = (what: string) => z.string().max(40).optional().describe(what + ' Absolute date/time; prefer an explicit UTC offset, else the API configured TZ applies.');
-const mailId = z.string().regex(/^[^,\s]{1,200}:\d{1,12}$/, 'a mail id returned by mail_search, like INBOX:4521');
+// Mailbox names may contain spaces (Sent Messages); commas separate ids upstream, so they and control characters are refused
+const mailId = z.string().regex(/^[^,\p{Cc}]{1,200}:\d{1,12}$/u, 'a mail id returned by mail_search, like INBOX:4521');
 
 /** Only fixed GET paths reach the configured API origin; redirects and unbounded replies are refused. */
 export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 'maxConcurrent'>) {
@@ -103,7 +104,7 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 
         q: z.string().max(300).optional().describe('Words in the headers and body.'),
         sender: z.string().max(256).optional(), subject: z.string().max(300).optional(),
         unread: z.boolean().optional(), from: date('Received from.'), to: date('Received until.'),
-        mailbox: z.string().max(200).optional().describe('Mailbox name, INBOX by default; a wrong name lists the existing ones.'),
+        mailbox: z.string().max(200).optional().describe('Mailbox name as iCloud names it (INBOX, Sent Messages, Archive); INBOX by default. An unknown name fails with HTTP 400.'),
         limit: z.number().int().min(1).max(50).default(20),
       }),
       annotations,

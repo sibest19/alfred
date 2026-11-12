@@ -14,8 +14,9 @@ Variables are listed in `env.example`. Keep real secrets outside Git:
 
 - `ALFRED_API_URL`: trusted API origin, default `http://alfred-api:8080`. No path,
   credentials, query or fragment. Redirects are refused.
-- `ALFRED_API_TOKEN`: dedicated credential with **only `archive.read`**, never the
-  legacy full-access `API_TOKEN`.
+- `ALFRED_API_TOKEN`: dedicated scoped credential with only the read scopes of the
+  tools to offer (`archive.read`, and `mail.read` and `calendar.read` for the mail
+  and calendar tools), never the legacy full-access `API_TOKEN`.
 - `MCP_TOKEN`: a different secret presented by Hermes. Inbound credentials are
   never forwarded to Alfred. Both secrets need at least 16 bytes, no whitespace.
 - `MCP_ALLOWED_HOSTS`: explicit hostnames without ports; defaults to

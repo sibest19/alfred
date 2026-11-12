@@ -98,7 +98,7 @@ test('all eight tools use fixed GET paths and only the upstream credential', asy
     ['whatsapp_find_chat', { q: 'Weekend' }, '/chats'],
     ['whatsapp_find_contact', { q: 'Rossi' }, '/contacts'],
     ['mail_search', { q: 'fattura', unread: true, limit: 5 }, '/mail'],
-    ['mail_read', { ids: ['INBOX:4521', 'Archive:7'] }, '/mail/read'],
+    ['mail_read', { ids: ['INBOX:4521', 'Sent Messages:7'] }, '/mail/read'],
     ['calendar_events', { from: '2026-11-12', to: '2026-11-19' }, '/calendar/events'],
   ];
   for (const [name, args, path] of cases) {
@@ -113,7 +113,7 @@ test('all eight tools use fixed GET paths and only the upstream credential', asy
   assert.equal(search.searchParams.get('q'), 'cena & sabato');
   assert.equal(search.searchParams.get('sender'), 'me');
   assert.equal(new URL(calls[5].path, 'http://api').searchParams.get('unread'), 'true');
-  assert.equal(new URL(calls[6].path, 'http://api').searchParams.get('ids'), 'INBOX:4521,Archive:7');
+  assert.equal(new URL(calls[6].path, 'http://api').searchParams.get('ids'), 'INBOX:4521,Sent Messages:7');
   assert.equal(calls.length, 8);
 });
 
@@ -122,7 +122,7 @@ test('unknown tools, injected URLs, invalid IDs and excessive limits never reach
     ['delete_event', {}], ['whatsapp_search', { url: 'http://evil.test' }],
     ['whatsapp_context', { id: '../../notes' }], ['whatsapp_search', { limit: 101 }],
     ['whatsapp_context', { id: 1, before: 51 }], ['whatsapp_find_contact', { q: '   ' }],
-    ['mail_read', { ids: [] }], ['mail_read', { ids: ['INBOX:1,INBOX:2'] }], ['mail_read', { ids: ['../x'] }],
+    ['mail_read', { ids: [] }], ['mail_read', { ids: ['INBOX:1,INBOX:2'] }], ['mail_read', { ids: ['../x'] }], ['mail_read', { ids: ['INBOX\n:1'] }],
     ['mail_search', { limit: 51 }], ['calendar_events', { calendar: 'x', url: 'http://evil.test' }],
   ] as [string, Record<string, unknown>][]) {
     const answer = await call(name, args);
