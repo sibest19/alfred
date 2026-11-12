@@ -1,9 +1,12 @@
-# WhatsApp MCP adapter
+# Alfred MCP adapter
 
 Stateless Streamable HTTP MCP at `POST /mcp`, using the official TypeScript SDK.
-Five read-only tools: `whatsapp_search`, `whatsapp_context`, `whatsapp_stats`,
-`whatsapp_find_chat` and `whatsapp_find_contact`. All call fixed GET routes on
-Alfred's API. No SQL access, writes, generic URLs or filesystem tools.
+Eight read-only tools: `whatsapp_search`, `whatsapp_context`, `whatsapp_stats`,
+`whatsapp_find_chat`, `whatsapp_find_contact` (scope `archive.read`), `mail_search`,
+`mail_read` (iCloud Mail, `mail.read`) and `calendar_events` (iCloud Calendar,
+`calendar.read`). All call fixed GET routes on Alfred's API; its credential needs the
+scopes of the tools the client should be able to use, and a missing scope is a 403
+the tool reports. No SQL access, writes, generic URLs or filesystem tools.
 
 ## Credentials and configuration
 
@@ -11,8 +14,9 @@ Variables are listed in `env.example`. Keep real secrets outside Git:
 
 - `ALFRED_API_URL`: trusted API origin, default `http://alfred-api:8080`. No path,
   credentials, query or fragment. Redirects are refused.
-- `ALFRED_API_TOKEN`: dedicated credential with **only `archive.read`**, never the
-  legacy full-access `API_TOKEN`.
+- `ALFRED_API_TOKEN`: dedicated scoped credential with only the read scopes of the
+  tools to offer (`archive.read`, and `mail.read` and `calendar.read` for the mail
+  and calendar tools), never the legacy full-access `API_TOKEN`.
 - `MCP_TOKEN`: a different secret presented by Hermes. Inbound credentials are
   never forwarded to Alfred. Both secrets need at least 16 bytes, no whitespace.
 - `MCP_ALLOWED_HOSTS`: explicit hostnames without ports; defaults to

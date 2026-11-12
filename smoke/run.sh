@@ -163,7 +163,7 @@ async function rpc(method, params = {}, credential = token) {
 const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } });
 assert.equal(init.result.protocolVersion, '2025-06-18');
 const list = await rpc('tools/list');
-assert.equal(list.result.tools.length, 5);
+assert.equal(list.result.tools.length, 8);
 for (const [name, args] of [
   ['whatsapp_search', { sender: 'me' }], ['whatsapp_stats', {}],
   ['whatsapp_find_chat', {}], ['whatsapp_find_contact', { q: 'smoke' }],
@@ -174,6 +174,12 @@ for (const [name, args] of [
 const missing = await rpc('tools/call', { name: 'whatsapp_context', arguments: { id: 999999 } });
 assert.equal(missing.result.isError, true);
 assert.match(missing.result.content[0].text, /HTTP 404/);
+// The smoke credential has only archive.read: mail and calendar stop at the API with advice naming the scope
+for (const [name, scope] of [['mail_search', 'mail.read'], ['calendar_events', 'calendar.read']]) {
+  const reply = await rpc('tools/call', { name, arguments: {} });
+  assert.equal(reply.result.isError, true);
+  assert.match(reply.result.content[0].text, new RegExp('HTTP 403.*' + scope.replace('.', '\\.')));
+}
 const denied = await rpc('tools/call', { name: 'delete_event', arguments: {} });
 assert.ok(denied.error || denied.result?.isError);
 await rpc('tools/list', {}, process.env.ALFRED_API_TOKEN);
