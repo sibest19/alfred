@@ -283,6 +283,17 @@ test('concurrency limit blocks upstream overload and recovers after completion',
 });
 
 
+test('a write without a clear answer reports an unknown outcome instead of advising a retry', async () => {
+  for (const failure of ['503', 'invalid']) {
+    mode = failure;
+    const reply = await call('reminder_create', { title: 'x' });
+    assert.equal(reply.result.isError, true);
+    const text = JSON.stringify(reply);
+    assert.match(text, /outcome is unknown.*List the reminders/);
+    assert.doesNotMatch(text, /Retry later/);
+  }
+});
+
 test('upstream errors give recovery advice without upstream text or credentials', async () => {
   for (const [status, advice] of [
     ['400', /API configured TZ/], ['401', /operator.*credential/], ['failure', /archive\.read/],

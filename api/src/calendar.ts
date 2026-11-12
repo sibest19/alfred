@@ -23,22 +23,42 @@ const hasEvents = (c: DAVCalendar) => !c.components || c.components.includes('VE
 const icloudConfigured = () => Boolean(config.icloud.user && config.icloud.password);
 let icloudSession: { client: Dav; calendars: DAVCalendar[]; at: number } | undefined;
 
-/** Every calendar, iCloud's first, with the client that reaches each. */
-async function dav(): Promise<{ calendars: DAVCalendar[]; clientOf: (c: DAVCalendar) => Dav }> {
-  if (!icloudConfigured() && !radicaleConfigured()) {
+type Source = 'icloud' | 'radicale';
+const SOURCES: Record<Source, { configured: () => boolean; load: () => Promise<{ client: Dav; calendars: DAVCalendar[] }> }> = {
+  icloud: { configured: icloudConfigured, load: () => icloud() },
+  radicale: { configured: radicaleConfigured, load: radicale },
+};
+const sourceOf = new Map<string, Source>();
+
+/**
+ * The calendars of every configured server, iCloud's first, with the client that reaches each. A server that fails
+ * is left out and its error kept in `failed`, unless `strict` (a write that picks a calendar by name or by default):
+ * then it fails, so a server being down never changes which calendar a name or the default means.
+ */
+async function dav(strict: boolean) {
+  const configured = (Object.keys(SOURCES) as Source[]).filter((s) => SOURCES[s].configured());
+  if (!configured.length) {
     throw new HttpError(503, 'no calendar is configured (ICLOUD_USER and ICLOUD_PASSWORD, or RADICALE_URL, RADICALE_USER and RADICALE_PASSWORD)');
   }
-  const sources = await Promise.all([icloudConfigured() ? icloud() : undefined, radicaleConfigured() ? radicale() : undefined]);
+  const results = await Promise.allSettled(configured.map((s) => SOURCES[s].load()));
   const clients = new Map<string, Dav>();
   const calendars: DAVCalendar[] = [];
-  for (const source of sources) {
-    for (const c of source?.calendars.filter(hasEvents) ?? []) {
-      clients.set(c.url, source!.client);
+  const failed: HttpError[] = [];
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      failed.push(r.reason instanceof HttpError ? r.reason : new HttpError(502, `${configured[i]} is unreachable: ${r.reason}`));
+      return;
+    }
+    for (const c of r.value.calendars.filter(hasEvents)) {
+      clients.set(c.url, r.value.client);
+      sourceOf.set(c.url, configured[i]);
       calendars.push(c);
     }
-  }
-  allCalendars = calendars;
-  return { calendars, clientOf: (c) => clients.get(c.url)! };
+  });
+  if (failed.length && (strict || !calendars.length)) throw failed[0];
+  // names are numbered over every server's calendars: keep the last complete list
+  if (!failed.length) allCalendars = calendars;
+  return { calendars, clientOf: (c: DAVCalendar) => clients.get(c.url)!, failed };
 }
 
 async function icloud() {
@@ -79,22 +99,22 @@ function pickCalendar(calendars: DAVCalendar[], name: string): DAVCalendar {
 
 // --- event ids ---
 
-const known = new Map<string, { url: string; calendar: string }>();
+const known = new Map<string, { url: string; calendar: string; source: Source }>();
 
 function idOf(url: string, calendar: DAVCalendar): string {
   const id = createHash('sha1').update(url).digest('hex').slice(0, 8);
-  known.set(id, { url, calendar: calendar.url });
+  known.set(id, { url, calendar: calendar.url, source: sourceOf.get(calendar.url)! });
   return id;
 }
 
 async function objectOf(id: string): Promise<{ calendar: DAVCalendar; object: DAVCalendarObject; client: Dav }> {
   const ref = known.get(id);
   if (!ref) throw new HttpError(404, `unknown event id "${id}": list the events again (GET /calendar/events) and use an id from there`);
-  const { calendars, clientOf } = await dav();
+  // only the event's own server: another one being down doesn't matter
+  const { client, calendars } = await SOURCES[ref.source].load();
   const calendar = calendars.find((c) => c.url === ref.calendar);
-  const client = calendar && clientOf(calendar);
-  const [object] = calendar && client ? await client.fetchCalendarObjects({ calendar, objectUrls: [ref.url] }) : [];
-  if (!calendar || !client || !object?.data) throw new HttpError(404, `event ${id} no longer exists (deleted or moved): list the events again`);
+  const [object] = calendar ? await client.fetchCalendarObjects({ calendar, objectUrls: [ref.url] }) : [];
+  if (!calendar || !object?.data) throw new HttpError(404, `event ${id} no longer exists (deleted or moved): list the events again`);
   return { calendar, object, client };
 }
 
@@ -170,12 +190,18 @@ export async function listEvents(q: Query) {
   if (to.getTime() - from.getTime() > MAX_DAYS * 86_400_000) throw new HttpError(400, `at most ${MAX_DAYS} days at a time`);
   const words = fold(param(q, 'q') ?? '').match(/[\p{L}\p{N}]+/gu) ?? [];
 
-  const { calendars, clientOf } = await dav();
+  const { calendars, clientOf, failed } = await dav(false);
   const only = param(q, 'calendar');
-  const chosen = only ? [pickCalendar(calendars, only)] : calendars;
+  let chosen = calendars;
+  if (only) {
+    try { chosen = [pickCalendar(calendars, only)]; }
+    catch (err) { throw failed[0] ?? err; } // the calendar may be on the server that is down
+  }
   const events: View[] = [];
-  await Promise.all(chosen.map(async (calendar) => {
-    const objects = await clientOf(calendar).fetchCalendarObjects({ calendar, timeRange: { start: from.toISOString(), end: to.toISOString() } });
+  const unread: string[] = [];
+  const fetched = await Promise.allSettled(chosen.map(async (calendar) => {
+    const objects = await clientOf(calendar).fetchCalendarObjects({ calendar, timeRange: { start: from.toISOString(), end: to.toISOString() } })
+      .catch((err) => { unread.push(calendarName(calendar)); throw err; });
     for (const object of objects) {
       const parsed = object.data && parse(object.data);
       if (!parsed) continue;
@@ -187,10 +213,15 @@ export async function listEvents(q: Query) {
       }
     }
   }));
+  const reason = fetched.find((r) => r.status === 'rejected');
+  // one calendar's server failing leaves the others listed; with every calendar failed there is nothing to show
+  if (reason && unread.length === chosen.length) throw new HttpError(502, `the calendar server could not be read: ${(reason as PromiseRejectedResult).reason}`);
   events.sort((a, b) => a.start.localeCompare(b.start) || Number(b.all_day) - Number(a.all_day));
   const period = `${weekday(from)} ${wall(from)} – ${weekday(to)} ${wall(to)} (${tz})`;
   const lines = events.length ? events.map(line) : [`No events ${words.length ? 'matching the search ' : ''}in ${period}.`];
   lines.push(`Calendars: ${calendars.map(calendarName).join(', ')}`);
+  for (const f of failed) lines.push(`Not listed, a calendar server is down: ${f.message}`);
+  if (unread.length) lines.push(`Not listed, could not be read: ${unread.join(', ')}`);
   return { from: wall(from), to: wall(to), events, text: lines.join('\n') };
 }
 
@@ -347,7 +378,7 @@ const bumpSequence = (v: ICAL.Component) => v.updatePropertyWithValue('sequence'
 /** POST /calendar/events: title, start, end (an hour later, or the same day), all_day, location, notes, calendar. */
 export async function createEvent(body: Record<string, unknown>) {
   const f = fields(body, true);
-  const { calendars, clientOf } = await dav();
+  const { calendars, clientOf } = await dav(true);
   const calendar = pickCalendar(calendars, text(body.calendar));
   const client = clientOf(calendar);
   const root = new ICAL.Component(['vcalendar', [], []]);

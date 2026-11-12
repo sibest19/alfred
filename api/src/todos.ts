@@ -65,22 +65,51 @@ function setTime(vtodo: ICAL.Component, name: 'dtstart' | 'due', at: Date) {
   prop.setParameter('tzid', tz);
 }
 
-/** The due time and an alarm at that moment (a new due replaces the phone's own alarms, which name the old time). */
-function setDue(vtodo: ICAL.Component, at: Date | null) {
-  for (const alarm of vtodo.getAllSubcomponents('valarm')) vtodo.removeSubcomponent(alarm);
-  if (!at) {
-    vtodo.removeAllProperties('due');
-    vtodo.removeAllProperties('dtstart');
-    return;
-  }
-  // DTSTART too: a relative trigger counts from it, and the iPhone writes both
-  setTime(vtodo, 'dtstart', at);
-  setTime(vtodo, 'due', at);
+/** A display alarm at the due time, the kind the phones ring for. */
+function addAlarm(vtodo: ICAL.Component) {
   const alarm = new ICAL.Component('valarm');
   alarm.addPropertyWithValue('action', 'DISPLAY');
   alarm.addPropertyWithValue('description', String(vtodo.getFirstPropertyValue('summary') ?? 'Reminder'));
   alarm.addPropertyWithValue('trigger', ICAL.Duration.fromSeconds(0));
   vtodo.addSubcomponent(alarm);
+}
+
+/** Moves alarms set at a fixed time by `ms` (relative ones follow DTSTART or DUE) and clears the phone's "rang" mark. */
+function shiftAlarms(vtodo: ICAL.Component, ms: number) {
+  for (const alarm of vtodo.getAllSubcomponents('valarm')) {
+    alarm.removeAllProperties('acknowledged');
+    const trigger = alarm.getFirstProperty('trigger');
+    const value = trigger?.getFirstValue();
+    if (value instanceof ICAL.Time) trigger!.setValue(ICAL.Time.fromJSDate(new Date(value.toJSDate().getTime() + ms), true));
+  }
+}
+
+/**
+ * A new due time, written in TZ: DTSTART moves with it at the same distance (the iPhone writes both, and a relative
+ * alarm counts from one of them), the item's alarms move along, and one at the due time is added when it has none.
+ * Without a time the dates and the alarms go.
+ */
+export function setDue(vtodo: ICAL.Component, at: Date | null) {
+  const oldDue = vtodo.getFirstPropertyValue('due') as ICAL.Time | null;
+  const oldStart = vtodo.getFirstPropertyValue('dtstart') as ICAL.Time | null;
+  if (!at) {
+    for (const name of ['due', 'dtstart']) vtodo.removeAllProperties(name);
+    for (const alarm of vtodo.getAllSubcomponents('valarm')) vtodo.removeSubcomponent(alarm);
+    return;
+  }
+  const lead = oldDue && oldStart ? wallOf(oldDue).at.getTime() - wallOf(oldStart).at.getTime() : 0;
+  setTime(vtodo, 'due', at);
+  setTime(vtodo, 'dtstart', new Date(at.getTime() - lead));
+  if (oldDue) shiftAlarms(vtodo, at.getTime() - wallOf(oldDue).at.getTime());
+  if (!vtodo.getAllSubcomponents('valarm').length) addAlarm(vtodo);
+}
+
+/** A new title, in the display alarms' text too; the times and alarms stay as they are. */
+export function rename(vtodo: ICAL.Component, title: string) {
+  vtodo.updatePropertyWithValue('summary', title);
+  for (const alarm of vtodo.getAllSubcomponents('valarm')) {
+    if (alarm.getFirstPropertyValue('action') === 'DISPLAY') alarm.updatePropertyWithValue('description', title);
+  }
 }
 
 function touch(vtodo: ICAL.Component) {
@@ -111,33 +140,57 @@ function repeatRule(v: unknown): ICAL.Recur {
   const s = text(v).replace(/^RRULE:/i, '').toUpperCase();
   try {
     const r = ICAL.Recur.fromString(s);
-    if (!r.freq) throw new Error('no FREQ');
+    // a reminder repeats by days at most: hourly or faster isn't a reminder, and would take ages to step through
+    if (!['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].includes(r.freq)) throw new Error('FREQ');
     return r;
   } catch {
-    throw new HttpError(400, 'repeat must be an iCalendar rule like FREQ=DAILY, FREQ=WEEKLY;BYDAY=MO,TH, FREQ=MONTHLY;BYMONTHDAY=1 or FREQ=YEARLY;UNTIL=20271231');
+    throw new HttpError(400, 'repeat must be an iCalendar rule, DAILY to YEARLY, like FREQ=DAILY, FREQ=WEEKLY;BYDAY=MO,TH, FREQ=MONTHLY;BYMONTHDAY=1 or FREQ=YEARLY;UNTIL=20271231');
   }
 }
 
+// occurrences stepped through from a repeat's start (a daily one from 50 years ago is about 18,000)
+const MAX_STEPS = 20_000;
+
+/** An occurrence's due time: as far after the occurrence (a DTSTART) as the current due time is after DTSTART. */
+function dueAfter(t: ICAL.Time, start: ICAL.Time, due: ICAL.Time): ICAL.Time {
+  if (t.zone?.tzid === due.zone?.tzid && t.isDate === due.isDate) {
+    // on the wall clock of their own zone, so 09:00–17:00 stays that across a DST change
+    const d = t.clone();
+    d.addDuration(due.subtractDate(start));
+    return d;
+  }
+  return ICAL.Time.fromJSDate(new Date(wallOf(t).at.getTime() + wallOf(due).at.getTime() - wallOf(start).at.getTime()), true);
+}
+
 /**
- * Completes the to-do at `now`: a repeating one moves on to its first occurrence after now and after the current one
- * (done early, it skips to the next; late, past the missed ones), its alarm with it, and
- * stays open, like the phones do; one whose repeat has ended, or a plain one, is marked completed.
+ * Completes the to-do at `now`: a repeating one moves on to the first occurrence due after now and after the current
+ * one (done early, it skips to the next; late, past the missed ones) and stays open, like the phones do. DTSTART and
+ * DUE keep their zone and their distance, alarms set at a fixed time move along. One whose repeat has ended, or a
+ * plain one, is marked completed.
  */
 export function complete(vtodo: ICAL.Component, now: Date): { next: Date | null } {
   const rrule = vtodo.getFirstPropertyValue('rrule') as ICAL.Recur | null;
-  const start = (vtodo.getFirstPropertyValue('dtstart') ?? vtodo.getFirstPropertyValue('due')) as ICAL.Time | null;
-  if (rrule && start) {
+  const dueProp = vtodo.getFirstProperty('due');
+  const startProp = vtodo.getFirstProperty('dtstart');
+  if (rrule && dueProp) {
+    const due = dueProp.getFirstValue() as ICAL.Time;
+    // the occurrences are DTSTART's, in its own zone
+    const start = (startProp?.getFirstValue() as ICAL.Time | undefined) ?? due;
+    const current = wallOf(due).at;
     const it = rrule.iterator(start);
-    const current = wallOf((vtodo.getFirstPropertyValue('due') as ICAL.Time | null) ?? start).at;
-    for (let t = it.next(), steps = 0; t && steps < 20_000; t = it.next(), steps++) {
-      const at = wallOf(t).at;
-      if (at > now && at > current) {
-        // the series now starts here: a COUNT keeps only the occurrences left
-        if (rrule.count) vtodo.updatePropertyWithValue('rrule', Object.assign(rrule.clone(), { count: rrule.count - steps }));
-        setDue(vtodo, at);
-        touch(vtodo);
-        return { next: at };
-      }
+    for (let t = it.next(), index = 0; t; t = it.next(), index++) {
+      if (index >= MAX_STEPS) throw new HttpError(400, 'the reminder is too far behind its repeat to step through: give it a new due time instead');
+      const next = dueAfter(t, start, due);
+      const at = wallOf(next).at;
+      if (at <= now || at <= current) continue;
+      // the series now starts here: a COUNT keeps only the occurrences left
+      if (rrule.count) vtodo.updatePropertyWithValue('rrule', Object.assign(rrule.clone(), { count: rrule.count - index }));
+      startProp?.setValue(t);
+      dueProp.setValue(next);
+      if (next.zone === ICAL.Timezone.utcTimezone) dueProp.removeParameter('tzid');
+      shiftAlarms(vtodo, at.getTime() - current.getTime());
+      touch(vtodo);
+      return { next: at };
     }
   }
   vtodo.updatePropertyWithValue('status', 'COMPLETED');
@@ -257,7 +310,7 @@ export async function updateTodo(id: string, body: Record<string, unknown>) {
   if (!changes.length) throw new HttpError(400, 'nothing to change: give title, due, notes or repeat');
   const { client, list, object } = await objectOf(id);
   const { root, vtodo } = vtodoOf(object.data)!;
-  if (has(body, 'title')) vtodo.updatePropertyWithValue('summary', title(body.title));
+  if (has(body, 'title')) rename(vtodo, title(body.title));
   if (has(body, 'notes')) {
     if (text(body.notes) === '-') vtodo.removeAllProperties('description');
     else vtodo.updatePropertyWithValue('description', text(body.notes));
@@ -266,7 +319,6 @@ export async function updateTodo(id: string, body: Record<string, unknown>) {
     if (text(body.repeat) === '-') vtodo.removeAllProperties('rrule');
     else vtodo.updatePropertyWithValue('rrule', repeatRule(body.repeat));
   }
-  const current = vtodo.getFirstPropertyValue('due') as ICAL.Time | null;
   if (has(body, 'due')) {
     const due = text(body.due) === '-' ? null : dueTime(body.due);
     setDue(vtodo, due);
@@ -275,7 +327,7 @@ export async function updateTodo(id: string, body: Record<string, unknown>) {
       vtodo.updatePropertyWithValue('status', 'NEEDS-ACTION');
       for (const name of ['completed', 'percent-complete']) vtodo.removeAllProperties(name);
     }
-  } else if (has(body, 'title') && current) setDue(vtodo, wallOf(current).at); // the alarm shows the title
+  }
   if (vtodo.hasProperty('rrule') && !vtodo.hasProperty('due')) throw new HttpError(400, 'a repeating reminder needs a due time: remove the repeat too (repeat "-")');
   touch(vtodo);
   const ics = root.toString();

@@ -32,6 +32,10 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 
   async function call(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, params: Params, scope: string, body?: Params) {
     if (active >= config.maxConcurrent) return failure('Archive is busy; wait for pending calls before retrying.');
     active++;
+    const items = scope.startsWith('todos') ? 'reminders' : 'events';
+    // a write that timed out or got no clear answer may still have been made: retrying could do it twice
+    const unknown = method === 'GET' ? undefined
+      : 'The outcome is unknown: the change may already have been made. List the ' + items + ' and check before retrying.';
     try {
       const url = new URL(path, config.apiUrl);
       for (const [key, value] of Object.entries(params)) if (value !== undefined) url.searchParams.set(key, String(value));
@@ -41,7 +45,6 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 
       });
       if (!response.ok) {
         await response.body?.cancel();
-        const items = scope.startsWith('todos') ? 'reminders' : 'events';
         const advice: Record<number, string> = {
           400: scope === 'mail.read'
             ? 'Invalid mail request. Check the account name (icloud or a Gmail account named in your instructions), the mailbox name, the ids and the date format.'
@@ -61,7 +64,7 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 
         return failure('Alfred API returned HTTP ' + response.status + '. ' + (advice[response.status] ??
           (response.status >= 300 && response.status < 400
             ? 'Redirect refused. The operator must check the configured API origin.'
-            : 'Archive unavailable. Retry later; this is not evidence that messages are absent.')));
+            : unknown ?? 'Archive unavailable. Retry later; this is not evidence that messages are absent.')));
       }
       const chunks: Uint8Array[] = [];
       let size = 0;
@@ -72,7 +75,7 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 
           const { done, value } = await reader.read();
           if (done) break;
           size += value.byteLength;
-          if (size > MAX_RESPONSE) return failure('Archive response exceeds 256 KiB. Reduce limit or context size and retry.');
+          if (size > MAX_RESPONSE) return failure(unknown ?? 'Archive response exceeds 256 KiB. Reduce limit or context size and retry.');
           chunks.push(value);
         }
       } finally { await reader.cancel(); }
@@ -81,6 +84,7 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 
       return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
     } catch (error) {
       // Never expose upstream errors or credentials to the model.
+      if (unknown) return failure('Alfred API gave no clear answer in time. ' + unknown);
       return failure(error instanceof Error && error.name === 'TimeoutError'
         ? 'Archive request timed out after 15 seconds. Retry later or use narrower filters.'
         : 'Archive returned no valid response. The operator must check API health; do not infer that messages are absent.');
