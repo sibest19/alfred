@@ -3,7 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 export const SCOPES = [
   'archive.read', 'notes.read', 'notes.write', 'notes.delete', 'notes.consolidate',
   'reminders.read', 'reminders.manage', 'reminders.claim', 'mail.read',
-  'calendar.read', 'calendar.create', 'calendar.update', 'calendar.delete', 'audio.transcribe',
+  'calendar.read', 'calendar.create', 'calendar.update', 'calendar.delete', 'todos.read', 'todos.manage', 'audio.transcribe',
 ] as const;
 export type Scope = typeof SCOPES[number];
 

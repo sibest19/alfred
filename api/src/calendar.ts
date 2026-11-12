@@ -1,5 +1,5 @@
-// iCloud Calendar over CalDAV: the events of a period, repeating ones expanded into their occurrences, and
-// creating, changing and deleting events. Event ids are short (8 hex characters of the event's URL) and known from
+// iCloud Calendar and Radicale's calendars over CalDAV, as one list of calendars: the events of a period, repeating
+// ones expanded into their occurrences, and creating, changing and deleting events. Event ids are short (8 hex characters of the event's URL) and known from
 // a listing or a write since the API started: an id from before a restart asks for the events to be listed again.
 // Each answer carries `text`, the same as lines for a prompt, so an agent's tool can pass on that alone.
 import { createHash, randomUUID } from 'node:crypto';
@@ -8,6 +8,7 @@ import { createDAVClient, type DAVCalendar, type DAVCalendarObject } from 'tsdav
 import { day, dayAfter, fromWall, wall, wallMs, weekday, when, type When } from './clock.js';
 import { config } from './config.js';
 import { HttpError, param, text, tz, type Query } from './http.js';
+import { radicale, radicaleConfigured, type Dav } from './radicale.js';
 
 const DEFAULT_DAYS = 7;
 const MAX_DAYS = 366;
@@ -18,20 +19,37 @@ const MAX_STEPS = 20_000;
 // calendars and the login, kept this long between requests
 const DISCOVERY_TTL = 10 * 60_000;
 
-type Client = Awaited<ReturnType<typeof createDAVClient>>;
-let session: { client: Client; calendars: DAVCalendar[]; at: number } | undefined;
+const hasEvents = (c: DAVCalendar) => !c.components || c.components.includes('VEVENT');
+const icloudConfigured = () => Boolean(config.icloud.user && config.icloud.password);
+let icloudSession: { client: Dav; calendars: DAVCalendar[]; at: number } | undefined;
 
-async function dav() {
-  if (!config.icloud.user || !config.icloud.password) throw new HttpError(503, 'iCloud is not configured (ICLOUD_USER, ICLOUD_PASSWORD)');
-  if (session && Date.now() - session.at < DISCOVERY_TTL) return session;
+/** Every calendar, iCloud's first, with the client that reaches each. */
+async function dav(): Promise<{ calendars: DAVCalendar[]; clientOf: (c: DAVCalendar) => Dav }> {
+  if (!icloudConfigured() && !radicaleConfigured()) {
+    throw new HttpError(503, 'no calendar is configured (ICLOUD_USER and ICLOUD_PASSWORD, or RADICALE_URL, RADICALE_USER and RADICALE_PASSWORD)');
+  }
+  const sources = await Promise.all([icloudConfigured() ? icloud() : undefined, radicaleConfigured() ? radicale() : undefined]);
+  const clients = new Map<string, Dav>();
+  const calendars: DAVCalendar[] = [];
+  for (const source of sources) {
+    for (const c of source?.calendars.filter(hasEvents) ?? []) {
+      clients.set(c.url, source!.client);
+      calendars.push(c);
+    }
+  }
+  allCalendars = calendars;
+  return { calendars, clientOf: (c) => clients.get(c.url)! };
+}
+
+async function icloud() {
+  if (icloudSession && Date.now() - icloudSession.at < DISCOVERY_TTL) return icloudSession;
   try {
     const client = await createDAVClient({
       serverUrl: 'https://caldav.icloud.com', authMethod: 'Basic', defaultAccountType: 'caldav',
       credentials: { username: config.icloud.user, password: config.icloud.password },
     });
-    const calendars = (await client.fetchCalendars()).filter((c) => !c.components || c.components.includes('VEVENT'));
-    session = { client, calendars, at: Date.now() };
-    return session;
+    icloudSession = { client, calendars: await client.fetchCalendars(), at: Date.now() };
+    return icloudSession;
   } catch (err: any) {
     const message = String(err?.message ?? err);
     if (/401|unauthori[sz]ed|invalid credentials/i.test(message)) {
@@ -41,11 +59,12 @@ async function dav() {
   }
 }
 
+let allCalendars: DAVCalendar[] = [];
 const baseName = (c: DAVCalendar) => (typeof c.displayName === 'string' && c.displayName.trim()) || c.url.split('/').filter(Boolean).pop()!;
 
 /** The calendar's name, with " (2)", " (3)" after the first of several with the same name, so a name picks one. */
 function calendarName(c: DAVCalendar): string {
-  const same = (session?.calendars ?? [c]).filter((o) => baseName(o) === baseName(c));
+  const same = (allCalendars.length ? allCalendars : [c]).filter((o) => baseName(o) === baseName(c));
   const n = same.findIndex((o) => o.url === c.url);
   return n > 0 ? `${baseName(c)} (${n + 1})` : baseName(c);
 }
@@ -68,13 +87,14 @@ function idOf(url: string, calendar: DAVCalendar): string {
   return id;
 }
 
-async function objectOf(id: string): Promise<{ calendar: DAVCalendar; object: DAVCalendarObject; client: Client }> {
+async function objectOf(id: string): Promise<{ calendar: DAVCalendar; object: DAVCalendarObject; client: Dav }> {
   const ref = known.get(id);
   if (!ref) throw new HttpError(404, `unknown event id "${id}": list the events again (GET /calendar/events) and use an id from there`);
-  const { client, calendars } = await dav();
+  const { calendars, clientOf } = await dav();
   const calendar = calendars.find((c) => c.url === ref.calendar);
-  const [object] = calendar ? await client.fetchCalendarObjects({ calendar, objectUrls: [ref.url] }) : [];
-  if (!calendar || !object?.data) throw new HttpError(404, `event ${id} no longer exists (deleted or moved): list the events again`);
+  const client = calendar && clientOf(calendar);
+  const [object] = calendar && client ? await client.fetchCalendarObjects({ calendar, objectUrls: [ref.url] }) : [];
+  if (!calendar || !client || !object?.data) throw new HttpError(404, `event ${id} no longer exists (deleted or moved): list the events again`);
   return { calendar, object, client };
 }
 
@@ -150,12 +170,12 @@ export async function listEvents(q: Query) {
   if (to.getTime() - from.getTime() > MAX_DAYS * 86_400_000) throw new HttpError(400, `at most ${MAX_DAYS} days at a time`);
   const words = fold(param(q, 'q') ?? '').match(/[\p{L}\p{N}]+/gu) ?? [];
 
-  const { client, calendars } = await dav();
+  const { calendars, clientOf } = await dav();
   const only = param(q, 'calendar');
   const chosen = only ? [pickCalendar(calendars, only)] : calendars;
   const events: View[] = [];
   await Promise.all(chosen.map(async (calendar) => {
-    const objects = await client.fetchCalendarObjects({ calendar, timeRange: { start: from.toISOString(), end: to.toISOString() } });
+    const objects = await clientOf(calendar).fetchCalendarObjects({ calendar, timeRange: { start: from.toISOString(), end: to.toISOString() } });
     for (const object of objects) {
       const parsed = object.data && parse(object.data);
       if (!parsed) continue;
@@ -240,8 +260,8 @@ function apply(event: ICAL.Event, f: Fields) {
 }
 
 function check(res: Response, what: string) {
-  if (res.status === 412) throw new HttpError(409, `the event changed in iCloud meanwhile: list the events again, then ${what}`);
-  if (!res.ok) throw new HttpError(502, `iCloud refused to ${what} (HTTP ${res.status})`);
+  if (res.status === 412) throw new HttpError(409, `the event changed meanwhile (on a phone?): list the events again, then ${what}`);
+  if (!res.ok) throw new HttpError(502, `the calendar server refused to ${what} (HTTP ${res.status})`);
 }
 
 function written(id: string, calendar: DAVCalendar, ics: string, verb: string, target?: Date) {
@@ -327,8 +347,9 @@ const bumpSequence = (v: ICAL.Component) => v.updatePropertyWithValue('sequence'
 /** POST /calendar/events: title, start, end (an hour later, or the same day), all_day, location, notes, calendar. */
 export async function createEvent(body: Record<string, unknown>) {
   const f = fields(body, true);
-  const { client, calendars } = await dav();
+  const { calendars, clientOf } = await dav();
   const calendar = pickCalendar(calendars, text(body.calendar));
+  const client = clientOf(calendar);
   const root = new ICAL.Component(['vcalendar', [], []]);
   root.updatePropertyWithValue('prodid', '-//alfred//api//EN');
   root.updatePropertyWithValue('version', '2.0');

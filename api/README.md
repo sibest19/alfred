@@ -1,6 +1,6 @@
 # api
 
-Serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials, and the user's iCloud Mail and Calendar and Gmail accounts. It reads the archive and iCloud Mail, and writes only notes, reminders and calendar events; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` and `/openrouter/v1/` needs a bearer credential. The existing `API_TOKEN` retains full API access; optional scoped tokens restrict new callers. Dates without an offset are read and shown in `TZ`.
+Serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials, and the user's iCloud Mail and Calendar, Gmail accounts and a Radicale (CalDAV) server's calendars and to-do lists. It reads the archive and the mail, and writes only notes, reminders, calendar events and to-dos; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` and `/openrouter/v1/` needs a bearer credential. The existing `API_TOKEN` retains full API access; optional scoped tokens restrict new callers. Dates without an offset are read and shown in `TZ`.
 
 ## Scoped credentials
 
@@ -31,6 +31,8 @@ still takes the caller's own OpenRouter key.
 | `mail.read` | Search/read iCloud and Gmail mail |
 | `calendar.read` | List calendar events |
 | `calendar.create`, `calendar.update`, `calendar.delete` | The corresponding calendar write |
+| `todos.read` | List Radicale to-dos |
+| `todos.manage` | Create, change, complete and delete Radicale to-dos |
 | `audio.transcribe` | Transcribe uploaded audio |
 
 Every registered API route must declare a scope. These are operation permissions,
@@ -72,16 +74,23 @@ ALTER ROLE assistant_api SET statement_timeout = '15s';
 | `POST /transcribe` | audio body, passed to `TRANSCRIBER_URL` |
 | `GET /mail` | Mail, newest first: `account` (`icloud` by default, or a name from `GMAIL_ACCOUNTS`), `q` (words in the headers and body; Gmail search syntax for a Gmail account), `sender`, `subject`, `unread=true`, `from`/`to` (as for `/messages`), `mailbox` (iCloud `INBOX` or Gmail's All Mail by default, which must be shown in IMAP; a wrong name lists the others), `limit` (20, max 50); each with an `id` like `INBOX:4521` (Gmail: `<account>#<message id>`, the same in every label) and a snippet |
 | `GET /mail/read` | `ids` (up to 10, comma-separated): the messages in full (body text, recipients, attachment names). Mailboxes are opened read only: nothing is marked as seen |
-| `GET /calendar/events` | iCloud Calendar events of a period, repeating ones expanded into occurrences: `from` (today), `to` (a week later; a bare date includes that day; at most 366 days), `q` (words in the title, place or notes), `calendar` (a name); with the calendars' names |
+| `GET /calendar/events` | Events of a period in iCloud's and Radicale's calendars (one list of names), repeating ones expanded into occurrences: `from` (today), `to` (a week later; a bare date includes that day; at most 366 days), `q` (words in the title, place or notes), `calendar` (a name); with the calendars' names |
 | `POST /calendar/events` | JSON `title`, `start` (`2026-11-03 18:00`, or a date for an all-day event), `end` (an hour later; for an all-day event its last day), `all_day`, `location`, `notes`, `calendar` (`ICLOUD_CALENDAR`, else the first) |
 | `PATCH /calendar/events/<id>` | the fields to change (empty ones are kept; `-` removes a `location` or `notes`); a new `start` keeps the length. On a repeating event `occurrence` (a date) names the one meant: only that one changes, or with `series=true` all of them, a new start moving every occurrence by as much |
 | `DELETE /calendar/events/<id>` | deletes the event, a whole series; `occurrence` (a date) deletes that occurrence only |
+| `GET /todos` | Radicale's open to-dos (`done=true`: the completed ones too), by due time: `q` (words in the title or notes), `list` (a name); with the lists' names |
+| `POST /todos` | JSON `title`, `due` (`2026-11-13 15:00`, a bare date means 09:00, not in the past; without it no date and no alarm), `notes`, `repeat` (an iCalendar RRULE such as `FREQ=WEEKLY;BYDAY=MO`; needs a due time), `list` (the first by default) |
+| `PATCH /todos/<id>` | `title`, `due`, `notes`, `repeat` to change (empty ones are kept; `-` removes a due time, notes or repeat); a new due time reopens a completed to-do |
+| `POST /todos/<id>/done` | completes it; a repeating one moves on to its next occurrence after now and after the current one, and stays open |
+| `DELETE /todos/<id>` | deletes it, a repeating one with every occurrence |
 | `/openrouter/v1/<path>` | forwarded to OpenRouter with the caller's own `Authorization` (its OpenRouter key), for an agent whose model node can't set prompt caching: on `anthropic/` models the system prompt but its last paragraph (put what changes, like the current time, there) is cached for an hour and the conversation up to the latest user message for 5 minutes, and Amazon Bedrock is preferred (Vertex's global endpoint mostly misses the cache). Each call's cached and written tokens are logged |
 | `GET /health` | `200` while the database answers |
 
 Stubs (group events) and undecryptable messages are left out of the message endpoints.
 
-The mail and calendar answers carry `text`, the same as lines for a prompt (an agent's tool can pass on that alone), and errors say what to change. Mail ids stay valid: iCloud ids are per mailbox (`<mailbox>:<uid>`; an id with a colon always means iCloud), Gmail ids per account (`<account>#<message id>`, found in All Mail, Spam or Trash); calendar event ids are 8 characters and known from a listing or a write since the API started, so after a restart an id asks for the events to be listed again. iCloud takes an [app-specific password](https://support.apple.com/102654), which serves both IMAP and CalDAV; without one the mail and calendar routes answer `503`.
+The mail and calendar answers carry `text`, the same as lines for a prompt (an agent's tool can pass on that alone), and errors say what to change. Mail ids stay valid: iCloud ids are per mailbox (`<mailbox>:<uid>`; an id with a colon always means iCloud), Gmail ids per account (`<account>#<message id>`, found in All Mail, Spam or Trash); calendar event ids are 8 characters and known from a listing or a write since the API started, so after a restart an id asks for the events to be listed again. iCloud takes an [app-specific password](https://support.apple.com/102654), which serves both IMAP and CalDAV; without it and without Radicale the calendar routes answer `503`, without it the iCloud mail routes do.
+
+To-dos are written the way an iPhone's Reminders app rings for them: `DTSTART` and `DUE` with `TZID` set to `TZ`, and an alarm (`ACTION:DISPLAY`, `TRIGGER:PT0S`) at that moment; a new due time replaces the item's alarms. Phones fetch CalDAV changes on their own schedule, so a to-do due within minutes may ring late. Every write sends the item's ETag (`If-Match`, `If-None-Match: *` to create), so a change made on a phone meanwhile answers `409` instead of being overwritten. Radicale is reached with `RADICALE_USER` on the collections under `RADICALE_HOME`, which may be another user's that it is allowed to act on; the API never creates, renames or deletes a collection. Without discovery, since Radicale checks the password (bcrypt) on every request: the collections are listed once every ten minutes.
 
 Topics are paths of 1-4 lowercase words (`people/giulia`, `places/restaurants/bergamo`); accents and spaces are folded, and the first word must be one of `NOTE_TOPIC_ROOTS`. A topic has at most one summary (kind `summary`), written with `PUT /notes/summaries`. A consolidation job (an agent run on a schedule) is expected to file notes under topics, merge duplicates and keep the summaries current, and to record each run so the next one only starts when notes changed.
 
@@ -98,5 +107,8 @@ A repeating reminder keeps its wall-clock time across daylight saving changes an
 | `ICLOUD_USER`, `ICLOUD_PASSWORD` | | iCloud Mail and Calendar: the Apple ID and an app-specific password; empty disables them |
 | `GMAIL_ACCOUNTS` | `{}` | Gmail accounts read over IMAP, as JSON: `{"<name>": {"user": "<address>", "password": "<app password>"}}`; names are lowercase letters, digits and `-`. Each account needs 2-Step Verification and an [app password](https://support.google.com/accounts/answer/185833) |
 | `ICLOUD_CALENDAR` | | Calendar for new events when the request names none (default: the first) |
+| `RADICALE_URL` | | A Radicale server, e.g. `http://radicale:5232`; empty disables it |
+| `RADICALE_USER`, `RADICALE_PASSWORD` | | Its login |
+| `RADICALE_HOME` | `/<RADICALE_USER>/` | The collections used: calendars (VEVENT) join iCloud's, to-do lists (VTODO) serve `/todos` |
 | `HTTP_PORT` | `8080` | |
 | `LOG_LEVEL` | `info` | |

@@ -38,4 +38,12 @@ export const config = {
   },
   // Gmail accounts over IMAP, each with an app password; read like iCloud Mail, by name.
   gmail: parseGmailAccounts(process.env.GMAIL_ACCOUNTS || '{}'),
+  // A Radicale server: its calendars join iCloud's, its to-do lists are the reminders. Empty URL disables it.
+  radicale: {
+    url: process.env.RADICALE_URL ?? '',
+    user: process.env.RADICALE_USER ?? '',
+    password: process.env.RADICALE_PASSWORD ?? '',
+    // The collections used, e.g. another user's that RADICALE_USER may act on; the user's own by default.
+    home: process.env.RADICALE_HOME || `/${process.env.RADICALE_USER ?? ''}/`,
+  },
 };

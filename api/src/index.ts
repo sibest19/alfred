@@ -1,6 +1,6 @@
 // HTTP API over the archive and the notes, for an agent (n8n, …) that shouldn't hold database credentials.
 // Its own service and container, so a restart never touches the WhatsApp session.
-// Read-only on the archive and on iCloud Mail; writes notes, reminders and iCloud Calendar events. Every request but /health
+// Read-only on the archive and on the mail; writes notes, reminders, calendar events (iCloud, Radicale) and to-dos (Radicale). Every request but /health
 // and /openrouter/v1/ (the caller's OpenRouter key passes through) needs a configured bearer token and the route's scope.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { pino } from 'pino';
@@ -18,6 +18,7 @@ import {
 import {
   cancelReminder, claimDue, createReminder, doneReminder, listReminders, snoozeReminder, updateReminder,
 } from './reminders.js';
+import { createTodo, deleteTodo, doneTodo, listTodos, updateTodo } from './todos.js';
 import { transcribe } from './transcribe.js';
 
 const log = pino({ level: config.logLevel });
@@ -61,6 +62,11 @@ const routes: [string, RegExp, Scope, Handler][] = [
   ['POST', /^\/calendar\/events$/, 'calendar.create', async (r) => createEvent(await readJson(r))],
   ['PATCH', /^\/calendar\/events\/([0-9a-f]{8})$/, 'calendar.update', async (r, _q, id) => updateEvent(id, await readJson(r))],
   ['DELETE', /^\/calendar\/events\/([0-9a-f]{8})$/, 'calendar.delete', (_r, q, id) => deleteEvent(id, q)],
+  ['GET', /^\/todos$/, 'todos.read', (_r, q) => listTodos(q)],
+  ['POST', /^\/todos$/, 'todos.manage', async (r) => createTodo(await readJson(r))],
+  ['PATCH', /^\/todos\/([0-9a-f]{8})$/, 'todos.manage', async (r, _q, id) => updateTodo(id, await readJson(r))],
+  ['POST', /^\/todos\/([0-9a-f]{8})\/done$/, 'todos.manage', (_r, _q, id) => doneTodo(id)],
+  ['DELETE', /^\/todos\/([0-9a-f]{8})$/, 'todos.manage', (_r, _q, id) => deleteTodo(id)],
 ];
 
 function send(res: ServerResponse, status: number, body: unknown) {
@@ -90,7 +96,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       continue;
     }
     if (!permissions.has(scope)) return send(res, 403, { error: 'token does not permit this operation' });
-    return send(res, method === 'POST' && ['/notes', '/consolidations', '/reminders', '/calendar/events'].includes(path) ? 201 : 200, await handler(req, url.searchParams, m[1] ?? ''));
+    return send(res, method === 'POST' && ['/notes', '/consolidations', '/reminders', '/calendar/events', '/todos'].includes(path) ? 201 : 200, await handler(req, url.searchParams, m[1] ?? ''));
   }
   send(res, methodMismatch ? 405 : 404, { error: methodMismatch ? 'method not allowed' : 'not found' });
 }
