@@ -8,6 +8,13 @@
   // A version is proposed after it has been out for a while: time for a hijacked release to be pulled
   minimumReleaseAge: '3 days',
   osvVulnerabilityAlerts: true,
+  // Digests without a release date skip that wait on purpose (timestamp-optional below): not a dashboard problem
+  logLevelRemap: [
+    {
+      matchMessage: "/Some .+ did not have a releaseTimestamp, but as we're running with minimumReleaseAgeBehaviour=timestamp-optional, proceeding/",
+      newLogLevel: 'info',
+    },
+  ],
   // No branch protection to make GitHub wait for the checks: Renovate merges when they have passed
   platformAutomerge: false,
   lockFileMaintenance: {
