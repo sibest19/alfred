@@ -1,4 +1,4 @@
-// iCloud Mail over IMAP, read only: search a mailbox, read messages in full. Mailboxes are opened read only
+// iCloud Mail and Gmail over IMAP, read only: search a mailbox, read messages in full. Mailboxes are opened read only
 // (EXAMINE), so reading never marks a message as seen. One connection per request: a few calls an hour don't need
 // a pool, and a connection the server dropped while idle can't hang a request.
 // Each answer carries `text`, the same as lines for a prompt, so an agent's tool can pass on that alone.
@@ -15,22 +15,46 @@ const MAX_READ = 10;
 const HEAD_BYTES = 16 * 1024;
 const MAX_SOURCE = 4 * 1024 * 1024;
 
-const configured = () => Boolean(config.icloud.user && config.icloud.password);
+const ICLOUD = 'icloud';
+type Account = { name: string; gmail: boolean; host: string; user: string; password: string };
 
-async function withMailbox<T>(mailbox: string, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
-  if (!configured()) throw new HttpError(503, 'iCloud is not configured (ICLOUD_USER, ICLOUD_PASSWORD)');
+function account(name = ICLOUD): Account {
+  if (name === ICLOUD) {
+    if (!config.icloud.user || !config.icloud.password) throw new HttpError(503, 'iCloud is not configured (ICLOUD_USER, ICLOUD_PASSWORD)');
+    return { name, gmail: false, host: 'imap.mail.me.com', ...config.icloud };
+  }
+  const gmail = Object.hasOwn(config.gmail, name) ? config.gmail[name] : undefined;
+  if (!gmail) throw new HttpError(400, `no mail account "${name}"; there are: ${[ICLOUD, ...Object.keys(config.gmail)].join(', ')}`);
+  return { name, gmail: true, host: 'imap.gmail.com', ...gmail };
+}
+
+// iCloud ids stay INBOX:4521; a Gmail id starts with its account: personal:INBOX:4521
+const mailId = (a: Account, mailbox: string, uid: number) => `${a.gmail ? `${a.name}:` : ''}${mailbox}:${uid}`;
+
+/** An id from GET /mail as account, mailbox and uid; undefined if it isn't one. */
+export function splitMailId(id: string, gmailNames: string[]) {
+  const head = id.slice(0, id.indexOf(':'));
+  const name = gmailNames.includes(head) ? head : ICLOUD;
+  const m = /^(.+):(\d+)$/.exec(name === ICLOUD ? id : id.slice(head.length + 1));
+  return m ? { name, mailbox: m[1], uid: Number(m[2]) } : undefined;
+}
+
+// mailbox undefined: Gmail's All Mail (what Gmail's own search covers), iCloud's INBOX
+async function withMailbox<T>(a: Account, mailbox: string | undefined, fn: (client: ImapFlow, mailbox: string) => Promise<T>): Promise<T> {
+  const label = a.gmail ? `Gmail (${a.name})` : 'iCloud';
   const client = new ImapFlow({
-    host: 'imap.mail.me.com', port: 993, secure: true, logger: false,
-    auth: { user: config.icloud.user, pass: config.icloud.password },
+    host: a.host, port: 993, secure: true, logger: false,
+    auth: { user: a.user, pass: a.password },
     connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 60_000,
   });
   try {
     await client.connect();
   } catch (err: any) {
-    if (err?.authenticationFailed) throw new HttpError(502, 'iCloud refused the login: check ICLOUD_USER and the app-specific password');
-    throw new HttpError(502, `iCloud Mail is unreachable: ${err?.message ?? err}`);
+    if (err?.authenticationFailed) throw new HttpError(502, `${label} refused the login: check the address and the app password`);
+    throw new HttpError(502, `${label} mail is unreachable: ${err?.message ?? err}`);
   }
   try {
+    mailbox ??= (a.gmail && (await client.list()).find((m) => m.specialUse === '\\All')?.path) || 'INBOX';
     let lock;
     try {
       lock = await client.getMailboxLock(mailbox, { readOnly: true });
@@ -39,7 +63,7 @@ async function withMailbox<T>(mailbox: string, fn: (client: ImapFlow) => Promise
       throw new HttpError(400, `no mailbox "${mailbox}"; there are: ${names.join(', ')}`);
     }
     try {
-      return await fn(client);
+      return await fn(client, mailbox);
     } finally {
       lock.release();
     }
@@ -61,13 +85,14 @@ const time = (d: Date | string | undefined) => (d ? `${weekday(new Date(d))} ${w
 
 /** GET /mail: a mailbox's messages, newest first, by words, sender, subject, period or unread. */
 export async function searchMail(q: Query) {
-  const mailbox = param(q, 'mailbox') ?? 'INBOX';
+  const acct = account(param(q, 'account'));
   const limit = intParam(q, 'limit', 20, 50);
   const from = param(q, 'from') === undefined ? undefined : when(param(q, 'from'), 'from');
   const to = param(q, 'to') === undefined ? undefined : when(param(q, 'to'), 'to');
   const end = to && (to.date ? dayAfter(to.date) : to.at);
   const search: SearchObject = {};
-  if (param(q, 'q')) search.text = param(q, 'q');
+  // Gmail takes its own search syntax (in:inbox, -category:promotions, has:attachment)
+  if (param(q, 'q')) search[acct.gmail ? 'gmraw' : 'text'] = param(q, 'q');
   if (param(q, 'sender')) search.from = param(q, 'sender');
   if (param(q, 'subject')) search.subject = param(q, 'subject');
   if (param(q, 'unread') === 'true') search.seen = false;
@@ -76,7 +101,7 @@ export async function searchMail(q: Query) {
   if (end) search.before = new Date(end.getTime() + 86_400_000);
   if (Object.keys(search).length === 0) search.all = true;
 
-  return withMailbox(mailbox, async (client) => {
+  return withMailbox(acct, param(q, 'mailbox'), async (client, mailbox) => {
     const uids = ((await client.search(search, { uid: true })) || []).sort((a, b) => a - b);
     const inPeriod = (m: FetchMessageObject) => {
       const t = m.internalDate ? new Date(m.internalDate).getTime() : 0;
@@ -97,14 +122,14 @@ export async function searchMail(q: Query) {
         snippet = clip(squash((await simpleParser(m.source ?? Buffer.alloc(0))).text ?? ''), SNIPPET);
       } catch {}
       return {
-        id: `${mailbox}:${m.uid}`, date: time(m.internalDate), from: address(m.envelope?.from), to: address(m.envelope?.to),
+        id: mailId(acct, mailbox, m.uid), date: time(m.internalDate), from: address(m.envelope?.from), to: address(m.envelope?.to),
         subject: m.envelope?.subject ?? '', unread: !m.flags?.has('\\Seen'), snippet,
       };
     }));
     const lines = mails.map((m) => `[${m.id}] ${m.date} | ${m.from} | ${m.subject}${m.unread ? ' (unread)' : ''}: ${m.snippet}`);
-    if (!mails.length) lines.push(`No mail in ${mailbox} for this search.`);
+    if (!mails.length) lines.push(`No mail in ${acct.name} ${mailbox} for this search.`);
     else if (found.length > limit) lines.push('(older matches not shown: narrow the search, or move "to" back)');
-    return { mailbox, mails, text: lines.join('\n') };
+    return { account: acct.name, mailbox, mails, text: lines.join('\n') };
   });
 }
 
@@ -113,20 +138,22 @@ export async function readMail(q: Query) {
   const ids = (param(q, 'ids') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (!ids.length) throw new HttpError(400, 'ids: one or more ids from GET /mail, like INBOX:4521');
   if (ids.length > MAX_READ) throw new HttpError(400, `ids: at most ${MAX_READ} at a time`);
-  const byMailbox = new Map<string, number[]>();
+  const byMailbox = new Map<string, { name: string; mailbox: string; uids: number[] }>();
   for (const id of ids) {
-    const m = /^(.+):(\d+)$/.exec(id);
-    if (!m) throw new HttpError(400, `"${id}" is not a mail id; ids look like INBOX:4521`);
-    byMailbox.set(m[1], [...(byMailbox.get(m[1]) ?? []), Number(m[2])]);
+    const m = splitMailId(id, Object.keys(config.gmail));
+    if (!m) throw new HttpError(400, `"${id}" is not a mail id; use an id from GET /mail, like INBOX:4521`);
+    const key = `${m.name}\n${m.mailbox}`;
+    byMailbox.set(key, { ...m, uids: [...(byMailbox.get(key)?.uids ?? []), m.uid] });
   }
   const mails: Record<string, unknown>[] = [];
-  for (const [mailbox, uids] of byMailbox) {
-    await withMailbox(mailbox, async (client) => {
+  for (const { name, mailbox, uids } of byMailbox.values()) {
+    const acct = account(name);
+    await withMailbox(acct, mailbox, async (client) => {
       const got = await client.fetchAll(uids, { uid: true, internalDate: true, flags: true, source: { maxLength: MAX_SOURCE } }, { uid: true });
       for (const m of got) {
         const p = await simpleParser(m.source ?? Buffer.alloc(0));
         mails.push({
-          id: `${mailbox}:${m.uid}`, date: time(p.date ?? m.internalDate), from: parsedAddress(p.from), to: parsedAddress(p.to),
+          id: mailId(acct, mailbox, m.uid), date: time(p.date ?? m.internalDate), from: parsedAddress(p.from), to: parsedAddress(p.to),
           cc: parsedAddress(p.cc), subject: p.subject ?? '', unread: !m.flags?.has('\\Seen'),
           body: clip((p.text ?? '').replace(/\n{3,}/g, '\n\n').trim(), MAX_BODY),
           attachments: p.attachments.filter((a) => a.contentDisposition !== 'inline').map((a) => a.filename ?? a.contentType),
