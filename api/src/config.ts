@@ -2,6 +2,18 @@
 const port = Number.parseInt(process.env.HTTP_PORT || '8080', 10);
 if (!Number.isFinite(port)) throw new Error(`HTTP_PORT must be an integer, got "${process.env.HTTP_PORT}"`);
 
+/** GMAIL_ACCOUNTS: {"<name>": {"user": "<address>", "password": "<app password>"}}; names are short lowercase words. */
+export function parseGmailAccounts(raw: string): Record<string, { user: string; password: string }> {
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('GMAIL_ACCOUNTS must be a JSON object');
+  for (const [name, a] of Object.entries(parsed)) {
+    if (!/^[a-z0-9-]{1,32}$/.test(name) || name === 'icloud') throw new Error(`GMAIL_ACCOUNTS: "${name}" is not a valid account name`);
+    if (typeof a?.user !== 'string' || !a.user || typeof a?.password !== 'string' || !a.password)
+      throw new Error(`GMAIL_ACCOUNTS: "${name}" needs user and password`);
+  }
+  return parsed as Record<string, { user: string; password: string }>;
+}
+
 export const config = {
   logLevel: process.env.LOG_LEVEL ?? 'info',
   httpPort: port,
@@ -24,4 +36,6 @@ export const config = {
     // New events go to this calendar unless the request names one; empty means the first calendar.
     calendar: process.env.ICLOUD_CALENDAR ?? '',
   },
+  // Gmail accounts over IMAP, each with an app password; read like iCloud Mail, by name.
+  gmail: parseGmailAccounts(process.env.GMAIL_ACCOUNTS || '{}'),
 };
