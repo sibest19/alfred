@@ -220,6 +220,8 @@ export async function listEvents(q: Query) {
   const lines = events.length ? events.map(line) : [`No events ${words.length ? 'matching the search ' : ''}in ${period}.`];
   lines.push(`Calendars: ${calendars.map(calendarName).join(', ')}`);
   for (const f of failed) lines.push(`Not listed, a calendar server is down: ${f.message}`);
+  // the names number every server's calendars: one coming back can renumber a name seen now
+  if (failed.length) lines.push('Calendar names may change once that server is back: list the events again before writing to a calendar by name.');
   if (unread.length) lines.push(`Not listed, could not be read: ${unread.join(', ')}`);
   if (skipped) lines.push(`${skipped} event(s) left out: their data could not be read`);
   return { from: wall(from), to: wall(to), events, text: lines.join('\n') };
