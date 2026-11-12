@@ -1,7 +1,7 @@
 name: release
 
-# Every push to main (or the commit given by hand) ships each service whose image inputs it changes as that
-# service's next patch version: tag <service>/vX.Y.Z, GitHub release, then image.yml on that tag. Releases by hand
+# Every push to main (or the commit given by hand) ships each service whose image inputs changed since that
+# service's last release as its next patch version: tag <service>/vX.Y.Z, GitHub release, then image.yml on that tag. Releases by hand
 # (pushing a <service>/v* tag) work as well.
 on:
   push:
@@ -28,14 +28,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SHA: ${{ inputs.sha || github.sha }}
-      # A push can carry several commits; a commit given by hand is compared with its parent
-      BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - run: |
-          files=$(git diff --name-only "${BEFORE:-$SHA^}" "$SHA" | grep -v '\.md$' || true)
           # What goes into each image: its directory (Dockerfile included); the Node services also the
           # workspace's shared files, so a lock file or dependency update ships all three
           node='^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.base\.json|\.dockerignore)$'
@@ -47,15 +44,14 @@ jobs:
             [transcriber]='^transcriber/'
           )
           for service in ingest api mcp hermes transcriber; do
-            grep -qE "${inputs[$service]}" <<<"$files" || continue
-            if tag=$(git tag --points-at "$SHA" -l "$service/v*" | head -1) && [[ -n $tag ]]; then
-              echo "already released as $tag"
-              continue
-            fi
             last=$(git tag -l "$service/v*.*.*" --sort=-v:refname | head -1)
-            # shortcut: services without a tag of their own continue from the last shared vX.Y.Z (v0.9.19);
+            # shortcut: services without a tag of their own continue from the last shared vX.Y.Z (v0.9.20);
             # remove this fallback once every service has a <service>/v* tag
             last=${last:-$(git tag -l 'v*.*.*' --sort=-v:refname | head -1)}
+            # Compared with the last release, not the previous push: a run cancelled while queued (the concurrency
+            # group keeps one pending run) loses nothing. A commit given by hand must come after that release.
+            if ! git merge-base --is-ancestor "$last" "$SHA"; then echo "$service: $SHA does not follow $last"; continue; fi
+            git diff --name-only "$last" "$SHA" | grep -v '\.md$' | grep -qE "${inputs[$service]}" || continue
             IFS=. read -r major minor patch <<< "${last#*v}"
             next="$service/v$major.$minor.$((patch + 1))"
             echo "$last -> $next"
