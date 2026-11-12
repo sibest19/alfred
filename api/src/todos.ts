@@ -13,12 +13,21 @@ const MAX_TEXT = 500;
 const MAX_LISTED = 200;
 const VTODO_FILTER = [{ 'comp-filter': { _attributes: { name: 'VCALENDAR' }, 'comp-filter': { _attributes: { name: 'VTODO' } } } }];
 
-const listName = (c: DAVCalendar) => (typeof c.displayName === 'string' && c.displayName.trim()) || c.url.split('/').filter(Boolean).pop()!;
+const baseName = (c: DAVCalendar) => (typeof c.displayName === 'string' && c.displayName.trim()) || c.url.split('/').filter(Boolean).pop()!;
+let allLists: DAVCalendar[] = [];
+
+/** The list's name, with " (2)", " (3)" after the first of several with the same name, so a name picks one. */
+function listName(c: DAVCalendar): string {
+  const same = (allLists.length ? allLists : [c]).filter((o) => baseName(o) === baseName(c));
+  const n = same.findIndex((o) => o.url === c.url);
+  return n > 0 ? `${baseName(c)} (${n + 1})` : baseName(c);
+}
 
 async function lists(): Promise<{ client: Dav; lists: DAVCalendar[] }> {
   const { client, calendars } = await radicale();
   const found = calendars.filter((c) => c.components?.includes('VTODO'));
   if (!found.length) throw new HttpError(503, 'Radicale has no to-do list under RADICALE_HOME');
+  allLists = found;
   return { client, lists: found };
 }
 
@@ -258,12 +267,16 @@ export async function listTodos(q: Query) {
   const withDone = ['true', '1', 'yes'].includes((param(q, 'done') ?? '').toLowerCase());
   const words = fold(param(q, 'q') ?? '').match(/[\p{L}\p{N}]+/gu) ?? [];
   const todos: View[] = [];
+  let skipped = 0;
   await Promise.all(chosen.map(async (list) => {
     for (const object of await client.fetchCalendarObjects({ calendar: list, filters: VTODO_FILTER })) {
-      const parsed = object.data && vtodoOf(object.data);
+      let parsed;
+      try { parsed = object.data && vtodoOf(object.data); } catch { skipped++; continue; } // a malformed item, not the list
       if (!parsed) continue;
       const t = view(idOf(object.url, list), list, parsed.vtodo);
-      if ((withDone || !t.done) && words.every((w) => fold(`${t.title} ${t.notes}`).includes(w))) todos.push(t);
+      // the whole notes, not the clipped ones shown
+      const haystack = fold(`${t.title} ${oneLine(parsed.vtodo.getFirstPropertyValue('description'))}`);
+      if ((withDone || !t.done) && words.every((w) => haystack.includes(w))) todos.push(t);
     }
   }));
   // open before done; by due time, those without one last; done ones most recent first
@@ -272,6 +285,7 @@ export async function listTodos(q: Query) {
   const shown = todos.slice(0, MAX_LISTED);
   const lines = shown.length ? shown.map(line) : [`No ${withDone ? '' : 'open '}reminders${words.length ? ' matching the search' : ''}.`];
   if (todos.length > shown.length) lines.push(`… and ${todos.length - shown.length} more: narrow with q or list.`);
+  if (skipped) lines.push(`${skipped} reminder(s) left out: their data could not be read`);
   lines.push(`Lists: ${all.map(listName).join(', ')} (times in ${tz})`);
   return { todos: shown, text: lines.join('\n') };
 }

@@ -56,6 +56,7 @@ async function dav(strict: boolean) {
     }
   });
   if (failed.length && (strict || !calendars.length)) throw failed[0];
+  if (!calendars.length) throw new HttpError(503, 'no calendar holds events: the configured servers have only to-do lists or nothing');
   // names are numbered over every server's calendars: keep the last complete list
   if (!failed.length) allCalendars = calendars;
   return { calendars, clientOf: (c: DAVCalendar) => clients.get(c.url)!, failed };
@@ -198,30 +199,35 @@ export async function listEvents(q: Query) {
     catch (err) { throw failed[0] ?? err; } // the calendar may be on the server that is down
   }
   const events: View[] = [];
-  const unread: string[] = [];
+  let skipped = 0;
   const fetched = await Promise.allSettled(chosen.map(async (calendar) => {
-    const objects = await clientOf(calendar).fetchCalendarObjects({ calendar, timeRange: { start: from.toISOString(), end: to.toISOString() } })
-      .catch((err) => { unread.push(calendarName(calendar)); throw err; });
+    const objects = await clientOf(calendar).fetchCalendarObjects({ calendar, timeRange: { start: from.toISOString(), end: to.toISOString() } });
     for (const object of objects) {
-      const parsed = object.data && parse(object.data);
-      if (!parsed) continue;
-      const id = idOf(object.url, calendar);
-      for (const o of occurrences(parsed.event, from, to)) {
-        const e = view(id, calendar, parsed.event, o);
-        const haystack = fold(`${e.title} ${e.location} ${e.notes}`);
-        if (words.every((w) => haystack.includes(w))) events.push(e);
-      }
+      // one malformed event is left out (and counted), not the rest of its calendar
+      try {
+        const parsed = object.data && parse(object.data);
+        if (!parsed) continue;
+        const id = idOf(object.url, calendar);
+        for (const o of occurrences(parsed.event, from, to)) {
+          const e = view(id, calendar, parsed.event, o);
+          const haystack = fold(`${e.title} ${e.location} ${e.notes}`);
+          if (words.every((w) => haystack.includes(w))) events.push(e);
+        }
+      } catch { skipped++; }
     }
   }));
-  const reason = fetched.find((r) => r.status === 'rejected');
-  // one calendar's server failing leaves the others listed; with every calendar failed there is nothing to show
-  if (reason && unread.length === chosen.length) throw new HttpError(502, `the calendar server could not be read: ${(reason as PromiseRejectedResult).reason}`);
+  const unread = chosen.filter((_, i) => fetched[i].status === 'rejected').map(calendarName);
+  // one calendar failing leaves the others listed; with every calendar failed there is nothing to show
+  if (unread.length && unread.length === chosen.length) {
+    throw new HttpError(502, `the calendars could not be read: ${(fetched.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason}`);
+  }
   events.sort((a, b) => a.start.localeCompare(b.start) || Number(b.all_day) - Number(a.all_day));
   const period = `${weekday(from)} ${wall(from)} – ${weekday(to)} ${wall(to)} (${tz})`;
   const lines = events.length ? events.map(line) : [`No events ${words.length ? 'matching the search ' : ''}in ${period}.`];
   lines.push(`Calendars: ${calendars.map(calendarName).join(', ')}`);
   for (const f of failed) lines.push(`Not listed, a calendar server is down: ${f.message}`);
   if (unread.length) lines.push(`Not listed, could not be read: ${unread.join(', ')}`);
+  if (skipped) lines.push(`${skipped} event(s) left out: their data could not be read`);
   return { from: wall(from), to: wall(to), events, text: lines.join('\n') };
 }
 
