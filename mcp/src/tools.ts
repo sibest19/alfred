@@ -14,8 +14,9 @@ const filters = {
 };
 const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const date = (what: string) => z.string().max(40).optional().describe(what + ' Absolute date/time; prefer an explicit UTC offset, else the API configured TZ applies.');
-// Mailbox names may contain spaces (Sent Messages); commas separate ids upstream, so they and control characters are refused
-const mailId = z.string().regex(/^[^,\p{Cc}]{1,200}:\d{1,12}$/u, 'a mail id returned by mail_search, like INBOX:4521 or personal:INBOX:4521');
+// iCloud ids are <mailbox>:<uid>, and mailbox names may contain spaces (Sent Messages); Gmail ids are <account>#<message id>.
+// Commas separate ids upstream, so they and control characters are refused.
+const mailId = z.string().regex(/^(?:[^,\p{Cc}]{1,200}:\d{1,12}|[a-z0-9-]{1,32}#\d{1,20})$/u, 'a mail id returned by mail_search, like INBOX:4521 or personal#1781234567890123456');
 
 /** Only fixed GET paths reach the configured API origin; redirects and unbounded replies are refused. */
 export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 'maxConcurrent'>) {
@@ -34,7 +35,9 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 
       if (!response.ok) {
         await response.body?.cancel();
         const advice: Record<number, string> = {
-          400: 'Invalid archive filters. Check date format YYYY-MM-DD, explicit UTC offsets or the API configured TZ, and field ranges.',
+          400: scope === 'mail.read'
+            ? 'Invalid mail request. Check the account name (icloud or a Gmail account named in your instructions), the mailbox name, the ids and the date format.'
+            : 'Invalid archive filters. Check date format YYYY-MM-DD, explicit UTC offsets or the API configured TZ, and field ranges.',
           401: 'API authentication failed. The operator must check the scoped API credential; do not retry unchanged.',
           403: 'API permission denied. The operator must grant ' + scope + ' to this adapter credential.',
           404: 'Archived message not found. Search again and use a message ID returned by the archive.',
@@ -101,11 +104,11 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 
     server.registerTool('mail_search', {
       description: 'Search one of the owner\'s mail accounts (iCloud by default, or a Gmail account), newest first; returns ids and snippets. Read the full text with mail_read before relying on a mail. Nothing is marked as read.',
       inputSchema: z.strictObject({
-        account: z.string().regex(/^[a-z0-9-]{1,32}$/).optional().describe('icloud (default) or a Gmail account name; an unknown name fails with HTTP 400 listing the accounts.'),
+        account: z.string().regex(/^[a-z0-9-]{1,32}$/).optional().describe('icloud (default) or the name of a Gmail account, as your instructions name them.'),
         q: z.string().max(300).optional().describe('Words in the headers and body; Gmail accounts take Gmail search syntax (in:inbox, -category:promotions, has:attachment).'),
         sender: z.string().max(256).optional(), subject: z.string().max(300).optional(),
         unread: z.boolean().optional(), from: date('Received from.'), to: date('Received until.'),
-        mailbox: z.string().max(200).optional().describe('Mailbox name as the account names it (iCloud: INBOX, Sent Messages, Archive); iCloud INBOX or all of Gmail by default. An unknown name fails with HTTP 400 listing them.'),
+        mailbox: z.string().max(200).optional().describe('Mailbox name as the account names it (iCloud: INBOX, Sent Messages, Archive); iCloud INBOX or all of Gmail by default. An unknown name fails with HTTP 400.'),
         limit: z.number().int().min(1).max(50).default(20),
       }),
       annotations,
