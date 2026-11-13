@@ -22,6 +22,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 MODEL_REPO = os.environ.get("MODEL_REPO", "Masterx/parakeet-tdt-0.6b-ultra-onnx")
+# A commit of MODEL_REPO: the model changes only with a release (.github/workflows/model.yml reports new ones)
+MODEL_REVISION = os.environ.get("MODEL_REVISION", "99b09f030a5a6efeaa13cf2cf54592100ce2c3f1")
 MODEL_TYPE = os.environ.get("MODEL_TYPE", "nemo-parakeet-tdt-0.6b-v3")
 MODEL_QUANTIZATION = os.environ.get("MODEL_QUANTIZATION", "fp16") or None  # empty = fp32
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/models"))
@@ -43,7 +45,7 @@ def model_files() -> Path:
     if not MODEL_QUANTIZATION:
         patterns.append("encoder-model.onnx.data")
     target = MODELS_DIR / MODEL_REPO.replace("/", "__")
-    return Path(snapshot_download(MODEL_REPO, local_dir=target, allow_patterns=patterns))
+    return Path(snapshot_download(MODEL_REPO, revision=MODEL_REVISION, local_dir=target, allow_patterns=patterns))
 
 
 def providers():
@@ -67,8 +69,8 @@ def load() -> None:
         # The first GPU run compiles the kernels.
         model.recognize(np.zeros(16000, dtype=np.float32))
         state["model"] = model
-        log.info("model %s (%s) ready on %s in %.1fs", MODEL_REPO, MODEL_QUANTIZATION or "fp32", DEVICE,
-                 time.monotonic() - started)
+        log.info("model %s@%s (%s) ready on %s in %.1fs", MODEL_REPO, MODEL_REVISION[:7], MODEL_QUANTIZATION or "fp32",
+                 DEVICE, time.monotonic() - started)
     except Exception as err:  # keep serving /health with the error
         state["error"] = repr(err)
         log.exception("model load failed")
@@ -148,4 +150,5 @@ async def openai_transcriptions(request: Request):
 async def health():
     if state["model"] is None:
         raise HTTPException(503, state["error"] or "model is loading")
-    return {"model": MODEL_REPO, "quantization": MODEL_QUANTIZATION or "fp32", "device": DEVICE}
+    return {"model": MODEL_REPO, "revision": MODEL_REVISION, "quantization": MODEL_QUANTIZATION or "fp32",
+            "device": DEVICE}

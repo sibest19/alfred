@@ -1,0 +1,75 @@
+name: model
+
+# The transcriber's model comes from a chain on Hugging Face: NVIDIA's Parakeet, Moondream's Parakeet Ultra (the
+# fine-tune), and the ONNX conversion transcriber/app.py downloads at a pinned commit. Neither Renovate nor the image
+# watchers see it, so every Monday this opens a "model-update" issue for each new thing upstream: a newer commit of
+# the conversion, an update of the fine-tune after the pinned conversion, a new NVIDIA Parakeet model. Each finding
+# has its own title and is reported once: closing its issue acknowledges it.
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: model-update
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      HF: https://huggingface.co/api/models
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: |
+          set -euo pipefail
+          setting() { sed -nE "s/^$1 = os\.environ\.get\(\"$1\", \"([^\"]+)\"\)$/\1/p" transcriber/app.py; }
+          repo=$(setting MODEL_REPO); pinned=$(setting MODEL_REVISION)
+          [[ -n $repo && -n $pinned ]] || { echo 'MODEL_REPO or MODEL_REVISION not found in transcriber/app.py'; exit 1; }
+          hf() { curl -sSf --retry 3 "$HF$1"; }  # $1 starts with / or ?
+          pinned_date=$(hf "/$repo/revision/$pinned" | jq -r .lastModified)
+          latest=$(hf "/$repo" | jq -r .sha)
+          base=$(hf "/$repo" | jq -r '.cardData.base_model // empty | if type == "array" then .[0] else . end')
+          echo "$repo pinned ${pinned:0:7} ($pinned_date), latest ${latest:0:7}; base model ${base:-unknown}"
+
+          gh label create model-update --color 1d76db --description 'A newer transcriber model upstream' --force >/dev/null
+          report() {  # title, body: once per title, whether its issue is open or closed
+            local issues
+            issues=$(gh issue list --label model-update --state all --search "\"$1\" in:title" --json title)
+            if jq -e --arg t "$1" 'any(.title == $t)' <<< "$issues" >/dev/null; then
+              echo "already reported: $1"
+            else
+              gh issue create --label model-update --title "$1" --body "$2"
+            fi
+          }
+          upgrade="To upgrade: change \`MODEL_REVISION\` (or \`MODEL_REPO\`) in \`transcriber/app.py\`; CI runs the transcriber smoke test with the new model on the CPU. Try a clip on the GPU after deploying."
+
+          if [[ $latest != "$pinned" ]]; then
+            report "Transcriber model: $repo has commit ${latest:0:7}" \
+              "https://huggingface.co/$repo/commits/main — pinned: \`$pinned\` ($pinned_date), latest: \`$latest\`.
+
+          $upgrade"
+          fi
+          if [[ -n $base ]]; then
+            base_date=$(hf "/$base" | jq -r .lastModified)
+            if [[ $base_date > $pinned_date ]]; then
+              report "Transcriber model: $base updated on ${base_date:0:10}" \
+                "https://huggingface.co/$base/commits/main changed after the pinned conversion of $repo ($pinned_date). Is there a newer ONNX conversion of it?
+
+          $upgrade"
+            fi
+          fi
+          hf "?author=nvidia&search=parakeet&limit=200" \
+            | jq -r --arg since "$pinned_date" '.[] | select(.createdAt > $since) | .id' \
+            | while read -r model; do
+                report "Transcriber model: new NVIDIA model $model" \
+                  "https://huggingface.co/$model was published after the pinned conversion of $repo ($pinned_date). Worth a look if it beats Parakeet TDT 0.6B v3; it needs an ONNX conversion that onnx-asr can load.
+
+          $upgrade"
+              done
