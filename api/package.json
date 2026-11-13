@@ -14,7 +14,7 @@
     "@alfred/db": "workspace:0.4.0",
     "ical.js": "2.2.1",
     "imapflow": "2.11.0",
-    "mailparser": "3.14.2",
+    "mailparser": "3.14.3",
     "pino": "10.4.0",
     "postgres": "4.1.0",
     "tsdav": "2.5.0"
