@@ -3,7 +3,7 @@
 # downloaded at runtime. The entrypoint runs Hermes's CLI directly instead of the inherited s6 /init, which only starts
 # as root or UID 10000: this image runs as any UID with a read-only root filesystem, with HERMES_HOME (/opt/data) as
 # its only writable mount. Run it with an init process (`docker run --init`, compose `init: true`).
-FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS plugin
+FROM node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS plugin
 # Honcho memory provider v1.2.0
 ADD --checksum=sha256:0aa21263ab3beb501bc023216c59682459199c91303f70d0ac57dfc456d8d12b https://api.github.com/repos/plastic-labs/honcho/tarball/894b88321872e01702a1aa638ddfdde6ad60f173 /tmp/honcho.tar.gz
 RUN mkdir /plugin && tar -xzf /tmp/honcho.tar.gz --strip-components=2 -C /plugin plastic-labs-honcho-894b883/hermes-plugin-honcho
