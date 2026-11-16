@@ -84,6 +84,7 @@ jobs:
           load: true
           tags: alfred-transcriber:smoke
           cache-from: type=gha,scope=transcriber
+      - run: docker run --rm --entrypoint python alfred-transcriber:smoke -m unittest -v test_app
       # The model (about 1.2 GB), downloaded again only when app.py changes
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:

@@ -74,10 +74,10 @@
       matchUpdateTypes: ['major'],
       enabled: false,
     },
-    // The onnxruntime versions onnx-asr excludes, for the OpenVINO build too (see transcriber/requirements.txt)
+    // The onnxruntime versions onnx-asr excludes (see transcriber/requirements.txt)
     {
-      matchPackageNames: ['onnxruntime-openvino'],
-      allowedVersions: '!/^1\\.(25\\..+|26\\.0)$/',
+      matchPackageNames: ['onnxruntime'],
+      allowedVersions: '!/^1\\.(24\\.1|25\\..+|26\\.0)$/',
     },
     // The transcriber runs on an Intel GPU that CI doesn't have: CI only tests it on the CPU, so its updates
     // come together once a month, and its majors wait for a manual merge
