@@ -1,7 +1,7 @@
 # Smoke test of the built images (smoke/run.sh): a fresh Postgres, ingest and the API.
 services:
   postgres:
-    image: docker.io/pgvector/pgvector:pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    image: docker.io/pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
     environment:
       POSTGRES_USER: assistant
       POSTGRES_PASSWORD: smoke
