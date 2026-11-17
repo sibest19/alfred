@@ -81,6 +81,11 @@ The Arc A310 used i915 with Intel OpenCL/Level Zero GPU runtime
 - An injected recognize exception exercised application-level CPU retry with real
   Parakeet CPU inference and produced the expected short transcript. This simulates
   an inference exception; it does not establish recovery after a GPU driver crash.
+- A follow-up short raw/multipart test also passed with the exact production
+  non-root user, supplementary groups, render device and dropped capabilities.
+  Both session profiles again recorded OpenVINO execution with automatic ORT
+  fallback disabled. Profile event counts were retained in private logs; the raw
+  files from this follow-up were lost when its temporary filesystem was removed.
 - Temporary containers/image were removed and the original production container,
   image and configuration restored, with health verified. Raw profiles and
   infrastructure-specific evidence remain outside this public repository.
