@@ -1,6 +1,6 @@
 # OpenVINO plugin migration — issue #55
 
-Status: prepared, not approved for release. Intel GPU inference has not been tested.
+Status: core Intel GPU inference validated; remaining acceptance checks are open.
 Ubuntu remains at 24.04; the Ubuntu 26.04 upgrade in #47 is a separate validation gate.
 
 ## Implementation
@@ -59,6 +59,37 @@ Validated on 2026-11-17, Docker Desktop on an ARM Mac with Linux amd64 emulation
   distribution.
 
 ## Required Intel GPU validation
+
+### Arc A310 maintenance test, 2026-11-17
+
+Native Linux amd64 / Ubuntu 24.04 validation used candidate commit `5d89ef8`,
+Python 3.12.3, ONNX Runtime 1.32.0, plugin 1.8.1, onnx-asr 0.12.0 and NumPy 2.5.5.
+The Arc A310 used i915 with Intel OpenCL/Level Zero GPU runtime
+`23.43.27642.40-1ubuntu3` and Level Zero loader `1.16.1-1build1`.
+
+- All nine updated tests passed. Native registration and enumeration must succeed,
+  but the test allows no OpenVINO hardware on AMD hosts without an exposed GPU.
+- During an explicitly authorized maintenance window, the current transcriber was
+  stopped while the candidate used the GPU. Other services remained running.
+  A temporary harness used the unchanged application with model discovery pointed
+  directly at existing read-only weights, profiling enabled and ORT automatic
+  session fallback disabled. No model/cache downloads or production audio were used.
+- Readiness was initially 503, then 200 after model warmup. Synthetic 4 s and 197 s
+  speech clips transcribed successfully through raw and multipart HTTP uploads,
+  with matching transcripts across formats. Both encoder and decoder profiles
+  contained executed `OpenVINOExecutionProvider` nodes.
+- An injected recognize exception exercised application-level CPU retry with real
+  Parakeet CPU inference and produced the expected short transcript. This simulates
+  an inference exception; it does not establish recovery after a GPU driver crash.
+- Temporary containers/image were removed and the original production container,
+  image and configuration restored, with health verified. Raw profiles and
+  infrastructure-specific evidence remain outside this public repository.
+
+This run validates core GPU functionality, not release completion. A controlled
+comparison with the previous image, cache restart behavior and Ubuntu 26.04 GPU
+checks remain unperformed. The checklist below remains the full acceptance scope.
+
+### Remaining acceptance scope
 
 1. Record GPU model, kernel, render-node permissions, installed Intel OpenCL/Level
    Zero driver versions, image digest, Python version and `pip freeze`. Run the
