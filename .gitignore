@@ -3,3 +3,4 @@ dist/
 *.log
 .env
 smoke/models/
+__pycache__/

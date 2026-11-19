@@ -7,7 +7,7 @@ RUN apt-get update \
 RUN python3 -m venv /opt/venv
 COPY requirements.txt /tmp/requirements.txt
 RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
-COPY app.py /app/app.py
+COPY app.py test_app.py /app/
 ENV PATH=/opt/venv/bin:$PATH MODELS_DIR=/models HF_HOME=/models/hf HOME=/tmp PYTHONUNBUFFERED=1
 WORKDIR /app
 EXPOSE 8000

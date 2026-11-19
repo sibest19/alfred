@@ -5,6 +5,7 @@ POST /v1/audio/transcriptions    OpenAI-style multipart ("file"; "model" is igno
 GET  /health                     200 once the model is loaded and warmed up
 """
 
+import json
 import logging
 import os
 import subprocess
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import onnx_asr
+import onnxruntime as ort
 from fastapi import FastAPI, HTTPException, Request
 from huggingface_hub import snapshot_download
 from starlette.concurrency import run_in_threadpool
@@ -46,24 +48,36 @@ def model_files() -> Path:
     return Path(snapshot_download(MODEL_REPO, local_dir=target, allow_patterns=patterns))
 
 
-def providers():
+def model_options():
     if DEVICE == "CPU":
-        return ["CPUExecutionProvider"]
-    options = {"device_type": "GPU"}
-    # Off by default: with onnxruntime-openvino 1.23 on an Arc A310, a model loaded from this cache aborts
-    # the process at the first inference ("Could not find a suitable kernel for fullyconnected"), while
-    # compiling from scratch (~30 s at start) works.
+        return {"providers": ["CPUExecutionProvider"]}
+    if DEVICE != "GPU":
+        raise ValueError("DEVICE must be CPU or GPU")
+    import onnxruntime_ep_openvino as openvino_ep
+
+    ort.register_execution_provider_library("openvino_ep", openvino_ep.get_library_path())
+    devices = [device for device in ort.get_ep_devices()
+               if device.ep_name == openvino_ep.get_ep_name()
+               and device.device.type == ort.OrtHardwareDeviceType.GPU]
+    if not devices:
+        raise RuntimeError("No OpenVINO Intel GPU found; use DEVICE=CPU for CPU inference")
+    options = {}
+    # Keep caching opt-in until cache restart behavior is validated with the new plugin on Intel GPU.
     if OPENVINO_CACHE_DIR:
         Path(OPENVINO_CACHE_DIR).mkdir(parents=True, exist_ok=True)
-        options["cache_dir"] = OPENVINO_CACHE_DIR
-    return [("OpenVINOExecutionProvider", options), "CPUExecutionProvider"]
+        options["load_config"] = json.dumps({"GPU": {"CACHE_DIR": OPENVINO_CACHE_DIR}})
+    session = ort.SessionOptions()
+    session.add_provider_for_devices([devices[0]], options)
+    log.info("selected OpenVINO GPU: %s", devices[0].ep_metadata)
+    # onnx-asr's default providers override SessionOptions; isolate GPU options to encoder/decoder.
+    return {"providers": ["CPUExecutionProvider"], "asr_config": {"sess_options": session}}
 
 
 def load() -> None:
     try:
         started = time.monotonic()
         path = model_files()
-        model = onnx_asr.load_model(MODEL_TYPE, path, quantization=MODEL_QUANTIZATION, providers=providers())
+        model = onnx_asr.load_model(MODEL_TYPE, path, quantization=MODEL_QUANTIZATION, **model_options())
         # The first GPU run compiles the kernels.
         model.recognize(np.zeros(16000, dtype=np.float32))
         state["model"] = model
