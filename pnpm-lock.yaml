@@ -191,8 +191,8 @@ importers:
         specifier: 2.2.1
         version: 2.2.1
       imapflow:
-        specifier: 2.11.0
-        version: 2.11.0
+        specifier: 2.12.1
+        version: 2.12.1
       mailparser:
         specifier: 3.14.4
         version: 3.14.4
@@ -644,10 +644,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@zone-eu/mailsplit@5.4.30':
-    resolution: {integrity: sha512-qN0KT6/ziAFvo5TzscaqpurIJaJQEXPPtqBZnpyhiGrACOKLDVMV6Lm57kXt5e/8zZUWoYiSC8oKl/aewtrJDQ==}
-    engines: {node: '>=20.0.0'}
-
   '@zone-eu/mailsplit@5.4.31':
     resolution: {integrity: sha512-P031SeyobwXE/aZf1f/hN9RZm/t8ZSibCUYA7Us6Fory4b1p5HxNEA08YcfTynkPnvJ3nFjMFguwSp30TXc4Tw==}
     engines: {node: '>=20.0.0'}
@@ -776,8 +772,8 @@ packages:
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
 
-  imapflow@2.11.0:
-    resolution: {integrity: sha512-Jv/PBBbBsKjBkdN5DUbELRCo7Xm3DQz+gYBkAy4h87ObQthTRd7nu53WV/dKDf2M8imoJZY+eQFBVkQAJagC6g==}
+  imapflow@2.12.1:
+    resolution: {integrity: sha512-mM0FAU13CU1DMZG9ylow3GgyU+rs0UvWcoZuLpYXWNq3tie0MGNqE/aJqOnNb25kJgeNVtU/spfJ0I0qCYxbpQ==}
     engines: {node: '>=20.0.0'}
 
   ip-address@10.7.6:
@@ -794,16 +790,8 @@ packages:
     resolution: {integrity: sha512-Nyh3H90B3gRtrcxIe56Ayy7635J0jmh6AbxbQgQae8wrSPQMH5wFqJChiMTB13yKG512L3YspbA5DzumhFTITA==}
     engines: {node: '>=20.0.0'}
 
-  libmime@5.6.4:
-    resolution: {integrity: sha512-QWiiwq3ujIUSsCCjFDldDN7FfXuLYSTnEln0oeYfOjgqyVlRV6WQ3UyJ/paguoz8Ynxy1s7k3kh6xomS3bJkCw==}
-    engines: {node: '>=20.0.0'}
-
   libmime@5.6.5:
     resolution: {integrity: sha512-2mbKYlwUP2mWys7kUE0MBHNdOndOe++8TIdmGXtt/hMYWSgbjHkSIXyC4jCpVSc/sAox3GSxWn1dSmyiQimLNA==}
-    engines: {node: '>=20.0.0'}
-
-  libqp@3.0.1:
-    resolution: {integrity: sha512-7QZxpPX25pga1WiMueduWxmrHMVBFrZPH6ZUaozGYa/H98JH6NVBSET3qVw+4NxzoraIW7rJ81YxSU9IalvCpg==}
     engines: {node: '>=20.0.0'}
 
   libqp@3.0.2:
@@ -1307,12 +1295,6 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@zone-eu/mailsplit@5.4.30':
-    dependencies:
-      libbase64: 1.4.1
-      libmime: 5.6.4
-      libqp: 3.0.1
-
   '@zone-eu/mailsplit@5.4.31':
     dependencies:
       libbase64: 1.4.1
@@ -1440,14 +1422,14 @@ snapshots:
 
   ieee754@1.2.1: {}
 
-  imapflow@2.11.0:
+  imapflow@2.12.1:
     dependencies:
-      '@zone-eu/mailsplit': 5.4.30
+      '@zone-eu/mailsplit': 5.4.31
       encoding-japanese: 2.5.0
       iconv-lite: 0.7.3
       libbase64: 1.4.1
-      libmime: 5.6.4
-      libqp: 3.0.1
+      libmime: 5.6.5
+      libqp: 3.0.2
       pino: 10.3.1
       socks: 2.8.10
 
@@ -1461,21 +1443,12 @@ snapshots:
 
   libbase64@1.4.1: {}
 
-  libmime@5.6.4:
-    dependencies:
-      encoding-japanese: 2.5.0
-      iconv-lite: 0.7.3
-      libbase64: 1.4.1
-      libqp: 3.0.1
-
   libmime@5.6.5:
     dependencies:
       encoding-japanese: 2.5.0
       iconv-lite: 0.7.3
       libbase64: 1.4.1
       libqp: 3.0.2
-
-  libqp@3.0.1: {}
 
   libqp@3.0.2: {}
 
