@@ -203,8 +203,8 @@ importers:
         specifier: 4.1.1
         version: 4.1.1
       tsdav:
-        specifier: 2.5.0
-        version: 2.5.0
+        specifier: 2.5.1
+        version: 2.5.1
     devDependencies:
       '@types/mailparser':
         specifier: 3.9.0
@@ -967,8 +967,8 @@ packages:
     resolution: {integrity: sha512-s9euYHM//T3loJtbNUYdbAzsMlvKBeRS+XCLFy+UGosMQH19Hwjap5k19i4PPAEJJBsVIpMpVTxl4fIqCuNfUg==}
     engines: {node: '>=14.16'}
 
-  tsdav@2.5.0:
-    resolution: {integrity: sha512-xcLbZ1Lwfr9OOlnLZGgICwkbqDHTGO9Gcn/k6ycwByt5TZf8LjEQhWFcim46M9Jq2aY19Nz4CV2tzJkWiqq2Iw==}
+  tsdav@2.5.1:
+    resolution: {integrity: sha512-ws8muUngH0u2KtASOzMAh/4sWEMwS0u8Yd87E26A/XK0Kax1QNm3pTY4B7KqNLhD66Z5Q/Ffbw+jxvOaYmBX7w==}
     engines: {node: '>=18'}
 
   tslib@2.9.1:
@@ -1679,7 +1679,7 @@ snapshots:
       '@tokenizer/token': 0.3.0
       ieee754: 1.2.1
 
-  tsdav@2.5.0:
+  tsdav@2.5.1:
     dependencies:
       debug: 4.4.3
       xml-js: 1.6.11
