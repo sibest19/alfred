@@ -1,6 +1,10 @@
 # Alfred MCP adapter
 
 Stateless Streamable HTTP MCP at `POST /mcp`, using the official TypeScript SDK.
+
+To let other clients send requests **to Alfred**, run the separate
+[inbox entrypoint](#incoming-requests-to-alfred). The default entrypoint below
+offers backend tools for Alfred to call.
 Read-only tools: `whatsapp_search`, `whatsapp_context`, `whatsapp_stats`,
 `whatsapp_find_chat`, `whatsapp_find_contact` (scope `archive.read`), `mail_search`,
 `mail_read` (iCloud Mail and Gmail accounts, `mail.read`), `calendar_events` (iCloud's and
@@ -75,3 +79,58 @@ Known [MCP gaps and deployment gates](GAPS.md) are tracked explicitly. A repeata
 [isolated Hermes trial](../smoke/hermes/README.md) exercises this adapter with
 synthetic data and Hermes's own discovery/dispatch and agent loop. The optional
 real-model mode uses a bounded relay with a separate test key.
+
+## Incoming requests to Alfred
+
+The same image can run `node dist/inbox-main.js` in a separate container. It
+exposes only `send_to_alfred(request, content, origin?)` at `POST /mcp`, never
+the archive tools. `request` and `content` are required, with limits of
+4000 and 24000 characters; optional `origin` is at most 1000 characters.
+Origin is caller-provided reference data, never an identity or permission.
+
+Configure these secrets outside Git:
+
+| Variable | Purpose |
+| --- | --- |
+| `HERMES_API_URL` | Fixed Hermes origin, default `http://hermes:8642` |
+| `HERMES_API_KEY` | Dedicated Hermes API credential, distinct from `MCP_TOKEN` |
+| `MCP_TOKEN` | Credential presented by incoming MCP clients |
+| `TELEGRAM_BOT_TOKEN` | Bot credential used to deliver Alfred's final reply |
+| `TELEGRAM_CHAT_ID` | Fixed owner's private chat, a positive numeric ID |
+
+`HTTP_PORT`, `MCP_ALLOWED_HOSTS`, `MCP_RATE_LIMIT` and `MCP_MAX_CONCURRENT`
+work as above; inbox defaults are six authenticated requests/minute and one
+in flight. Its JSON body limit is 192 KiB so maximum-size escaped input fits.
+Keep ingress authenticated and TLS-terminated; this bearer-only service does
+not implement OAuth. Give it only the Hermes API link and required Telegram
+egress, with no API/database credentials or host mounts.
+
+Enable Hermes's API server with a private listener (`API_SERVER_ENABLED=true`,
+`API_SERVER_KEY`, `API_SERVER_HOST=0.0.0.0` inside its container). Explicitly set
+`platform_toolsets.api_server` to Alfred's permitted tools before enabling it;
+an authenticated MCP caller can cause those tools to run. Do not expose the
+Hermes API itself to clients. The bridge sends one non-streaming completion,
+with a fixed MCP session key for memory scoping, and no conversation history
+copied from Telegram. Reference content is separated from the request in the
+prompt. The server creates the ingress context; caller text cannot select a
+destination, model, URL, session or toolset.
+
+A complete response is sent as plain text to the fixed Telegram chat, split
+without breaking Unicode characters, then returned as `{status: "processed",
+reply}`. This status confirms a reply, not a saved note or successful action.
+Hermes calls time out after 180 seconds; Telegram calls after 15 seconds, with
+30 seconds total for all delivery chunks.
+Both replies are limited to 256 KiB; agent text is limited to 24000 UTF-16 units.
+No calls are automatically retried. Partial/failed/uncertain agent outcomes
+are tool errors with `status: "unknown"`. If Alfred replies but Telegram delivery
+fails, the tool error retains `status: "processed"`, the reply and
+`telegram_delivery: "unknown"`. Check with Alfred before retrying: the agent's
+actions or some Telegram chunks may already have completed. A disconnected MCP
+client does not cancel or roll back Hermes's actions.
+
+Migration: move clients to this endpoint and its new dedicated credential;
+verify initialize/list/call and Telegram delivery, then revoke the old n8n
+bearer credential and remove the retired MCP workflow and routing. Keep that
+credential revoked in backups/restores; rollback must use the current bridge
+and credentials rather than reactivating the old workflow. No n8n forwarding
+fallback is provided. Unit tests use synthetic Hermes/Telegram replies only.
