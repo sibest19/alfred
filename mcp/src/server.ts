@@ -1,13 +1,18 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
-import { createMcpHandler } from '@modelcontextprotocol/server';
+import { createMcpHandler, type McpServer } from '@modelcontextprotocol/server';
 import { hostHeaderValidation, originValidation, toNodeHandler } from '@modelcontextprotocol/node';
 import type { Config } from './config.js';
 import { createArchiveTools } from './tools.js';
 
 export function createService(config: Config) {
-  const handler = createMcpHandler(createArchiveTools(config), { maxRequestBodySize: 16 * 1024, maxSubscriptions: 0 });
-  const dispatch = toNodeHandler(handler, { maxRequestBodySize: 16 * 1024 });
+  return createTransport(config, createArchiveTools(config), 16 * 1024);
+}
+
+export function createTransport(config: Pick<Config, 'allowedHosts' | 'mcpToken' | 'rateLimit' | 'maxConcurrent'>,
+  tools: () => McpServer, maxRequestBodySize: number) {
+  const handler = createMcpHandler(tools, { maxRequestBodySize, maxSubscriptions: 0 });
+  const dispatch = toNodeHandler(handler, { maxRequestBodySize });
   const validateHost = hostHeaderValidation(config.allowedHosts);
   const validateOrigin = originValidation([]);
   const token = Buffer.from(config.mcpToken);
