@@ -8,7 +8,7 @@ FROM node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c01
 ADD --checksum=sha256:0aa21263ab3beb501bc023216c59682459199c91303f70d0ac57dfc456d8d12b https://api.github.com/repos/plastic-labs/honcho/tarball/894b88321872e01702a1aa638ddfdde6ad60f173 /tmp/honcho.tar.gz
 RUN mkdir /plugin && tar -xzf /tmp/honcho.tar.gz --strip-components=2 -C /plugin plastic-labs-honcho-894b883/hermes-plugin-honcho
 
-FROM nousresearch/hermes-agent:v0.23.2@sha256:d6746a084e9341baada483e3d6210444d3c1aeb7c130f0915150065fb2851459
+FROM nousresearch/hermes-agent:v0.23.3@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355
 COPY --from=plugin /plugin/ /opt/hermes/plugins/memory/honcho/
 # honcho-ai and nothing else: the rest of its dependency closure already ships in the Hermes venv
 COPY honcho.requirements.txt /tmp/honcho.requirements.txt
