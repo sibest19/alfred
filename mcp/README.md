@@ -14,6 +14,9 @@ Write tools: `event_create`, `event_update`, `event_delete` (`calendar.create`, 
 (`todos.manage`). All call fixed routes on Alfred's API; its credential needs the
 scopes of the tools the client should be able to use, and a missing scope is a 403
 the tool reports. No SQL access, generic URLs or filesystem tools.
+For scheduled runs that report what is new, `whatsapp_search` takes the API's poller
+cursor `after_id` (messages archived after the highest id a previous search returned) and
+`mail_search` a `from` date.
 
 ## Credentials and configuration
 

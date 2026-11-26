@@ -96,7 +96,9 @@ export function createArchiveTools(config: Pick<Config, 'apiUrl' | 'apiToken' | 
     });
     server.registerTool('whatsapp_search', {
       description: 'Search archived WhatsApp messages and voice transcripts. Resolve names first, retry with broader terms if empty, then read context before interpreting a discussion.',
-      inputSchema: z.strictObject({ ...filters, order: z.enum(['asc', 'desc']).optional(), limit: z.number().int().min(1).max(100).default(30) }),
+      inputSchema: z.strictObject({ ...filters, order: z.enum(['asc', 'desc']).optional(), limit: z.number().int().min(1).max(100).default(30),
+        after_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
+          .describe('Only messages archived after this message id, in archive order (order is ignored): for what is new since the highest id a previous search returned.') }),
       annotations,
     }, (args) => read('/messages', args));
     server.registerTool('whatsapp_context', {
