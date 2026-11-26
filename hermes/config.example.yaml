@@ -1,0 +1,27 @@
+# Limits for a Hermes whose model runs on a ChatGPT plan (README.md): when the plan's quota runs out the run ends
+# with an error instead of waiting or switching provider, and a failing provider can't keep a run retrying for minutes.
+# Holds only if Hermes has no other provider's key or login (README.md). Merge into HERMES_HOME/config.yaml; check.sh
+# fails when a Hermes update renames these keys or stops applying their values.
+auth:
+  # Hermes's own ChatGPT login only, never a Codex CLI login it finds: the two would rotate one refresh token
+  adopt_external_logins: false
+# No fallback provider (Hermes's default, stated so a later `hermes fallback add` stands out); the older
+# `fallback_model` key adds one too, so leave it out
+fallback_providers: []
+agent:
+  # One attempt instead of three (1 = no Hermes retry, no Retry-After wait), and no recovery cycles after it
+  # (5 by default, up to about four more minutes)
+  api_max_retries: 1
+  auto_recovery_cycles: 0
+  max_turns: 40
+  # Soft: asks the model to wrap up at 80% and shortens per-call stall timeouts; does not stop a run (mcp/GAPS.md)
+  run_budget_seconds: 300
+auxiliary:
+  # Covers only the OpenRouter step of the auxiliary chain: its paid models are skipped
+  free_only: true
+  title_generation:
+    # Keep the instant title from the first message, never ask a model for a better one
+    model_upgrade_enabled: false
+approvals:
+  # Flagged commands in a chat ask the owner instead of an auxiliary model: no model call, a human decides
+  mode: manual
