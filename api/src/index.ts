@@ -74,6 +74,9 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+// Which credential made each request, by name, for the request log: an audit trail of the API's writes
+const callers = new WeakMap<IncomingMessage, string>();
+
 async function handle(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://api');
   if (url.pathname === '/health') {
@@ -84,8 +87,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (authorize(req.headers.authorization)) return send(res, 403, { error: 'use an OpenRouter credential, not an API token' });
     return log.info(await openrouter(req, res, url), 'model call');
   }
-  const permissions = authorize(req.headers.authorization);
-  if (!permissions) return send(res, 401, { error: 'missing or wrong bearer token' });
+  const caller = authorize(req.headers.authorization);
+  if (!caller) return send(res, 401, { error: 'missing or wrong bearer token' });
+  callers.set(req, caller.name);
   const path = url.pathname.replace(/\/+$/, '') || '/';
   let methodMismatch = false;
   for (const [method, pattern, scope, handler] of routes) {
@@ -95,7 +99,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       methodMismatch = true;
       continue;
     }
-    if (!permissions.has(scope)) return send(res, 403, { error: 'token does not permit this operation' });
+    if (!caller.scopes.has(scope)) return send(res, 403, { error: 'token does not permit this operation' });
     return send(res, method === 'POST' && ['/notes', '/consolidations', '/reminders', '/calendar/events', '/todos'].includes(path) ? 201 : 200, await handler(req, url.searchParams, m[1] ?? ''));
   }
   send(res, methodMismatch ? 405 : 404, { error: methodMismatch ? 'method not allowed' : 'not found' });
@@ -111,7 +115,7 @@ const server = createServer((req, res) => {
     })
     .finally(() => {
       if (req.url !== '/health') {
-        log.info({ method: req.method, path: req.url?.split('?')[0], status: res.statusCode, ms: Date.now() - started }, 'request');
+        log.info({ method: req.method, path: req.url?.split('?')[0], caller: callers.get(req), status: res.statusCode, ms: Date.now() - started }, 'request');
       }
     });
 });

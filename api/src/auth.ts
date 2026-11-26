@@ -7,11 +7,12 @@ export const SCOPES = [
 ] as const;
 export type Scope = typeof SCOPES[number];
 
-/** The legacy token keeps its permissions; new credentials receive only explicit scopes. */
+/** The legacy token keeps its permissions; new credentials receive only explicit scopes. A caller is named by its
+ * key in API_SCOPED_TOKENS (`legacy` for API_TOKEN), for the request log, never by its token. */
 export function createAuthorizer(legacyToken: string, scopedTokens = '{}') {
   if (Buffer.byteLength(legacyToken) < 16) throw new Error('API_TOKEN must be set (16 bytes or more)');
-  const credentials: { token: Buffer; scopes: ReadonlySet<Scope> }[] = [
-    { token: Buffer.from(legacyToken), scopes: new Set(SCOPES) },
+  const credentials: { name: string; token: Buffer; scopes: ReadonlySet<Scope> }[] = [
+    { name: 'legacy', token: Buffer.from(legacyToken), scopes: new Set(SCOPES) },
   ];
   let parsed: unknown;
   try { parsed = JSON.parse(scopedTokens); }
@@ -19,7 +20,7 @@ export function createAuthorizer(legacyToken: string, scopedTokens = '{}') {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('API_SCOPED_TOKENS must be a JSON object');
   }
-  for (const value of Object.values(parsed)) {
+  for (const [name, value] of Object.entries(parsed)) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       throw new Error('Each scoped credential must contain token and scopes');
     }
@@ -34,10 +35,11 @@ export function createAuthorizer(legacyToken: string, scopedTokens = '{}') {
     if (credentials.some((c) => c.token.length === bytes.length && timingSafeEqual(c.token, bytes))) {
       throw new Error('API credentials must use distinct tokens');
     }
-    credentials.push({ token: bytes, scopes: new Set(scopes) });
+    credentials.push({ name, token: bytes, scopes: new Set(scopes) });
   }
-  return (header: string | undefined): ReadonlySet<Scope> | undefined => {
+  return (header: string | undefined): { name: string; scopes: ReadonlySet<Scope> } | undefined => {
     const given = Buffer.from(header?.replace(/^Bearer\s+/i, '') ?? '');
-    return credentials.find((c) => c.token.length === given.length && timingSafeEqual(c.token, given))?.scopes;
+    const match = credentials.find((c) => c.token.length === given.length && timingSafeEqual(c.token, given));
+    return match && { name: match.name, scopes: match.scopes };
   };
 }

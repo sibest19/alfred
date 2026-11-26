@@ -12,7 +12,8 @@ Set `API_SCOPED_TOKENS` to a JSON object of named credentials, for example:
 
 Generate a distinct random secret for every caller, store it outside Git, and send
 it as `Authorization: Bearer <token>`. Names are configuration labels, not secrets
-or permissions. Invalid/duplicate tokens and unknown scopes prevent startup;
+or permissions; each request's log line names its caller (`caller`, `legacy` for
+`API_TOKEN`), so the log shows which credential made every write. Invalid/duplicate tokens and unknown scopes prevent startup;
 missing/wrong credentials return `401`, insufficient scope returns `403` before
 the handler runs. Omit the variable to preserve existing n8n behavior. API tokens
 are rejected on `/openrouter/v1/` rather than forwarded to OpenRouter; that route

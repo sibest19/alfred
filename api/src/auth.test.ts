@@ -8,17 +8,19 @@ const scoped = JSON.stringify({ hermes: { token: reader, scopes: ['archive.read'
 
 test('legacy credential remains compatible with every current scope', () => {
   const authorize = createAuthorizer(legacy);
-  assert.deepEqual([...authorize('Bearer ' + legacy)!], [...SCOPES]);
-  assert.ok(authorize(legacy)?.has('calendar.delete'));
+  assert.deepEqual([...authorize('Bearer ' + legacy)!.scopes], [...SCOPES]);
+  assert.ok(authorize(legacy)?.scopes.has('calendar.delete'));
 });
 
 test('archive reader cannot read personal notes/mail or write/claim anything', () => {
   const authorize = createAuthorizer(legacy, scoped);
-  assert.deepEqual([...authorize('bearer ' + reader)!], ['archive.read']);
+  assert.deepEqual([...authorize('bearer ' + reader)!.scopes], ['archive.read']);
   for (const scope of SCOPES.filter((s) => s !== 'archive.read')) {
-    assert.equal(authorize('Bearer ' + reader)?.has(scope), false, scope);
+    assert.equal(authorize('Bearer ' + reader)?.scopes.has(scope), false, scope);
   }
-  assert.ok(authorize('Bearer ' + legacy)?.has('reminders.claim'));
+  assert.ok(authorize('Bearer ' + legacy)?.scopes.has('reminders.claim'));
+  assert.equal(authorize('Bearer ' + reader)?.name, 'hermes');
+  assert.equal(authorize('Bearer ' + legacy)?.name, 'legacy');
 });
 
 test('separate callers receive only their own explicit scopes', () => {
@@ -27,10 +29,10 @@ test('separate callers receive only their own explicit scopes', () => {
     hermes: { token: reader, scopes: ['archive.read'] },
     calendar: { token: calendar, scopes: ['calendar.read', 'calendar.create'] },
   }));
-  assert.deepEqual([...authorize('Bearer ' + calendar)!], ['calendar.read', 'calendar.create']);
-  assert.equal(authorize('Bearer ' + calendar)?.has('calendar.delete'), false);
-  assert.equal(authorize('Bearer ' + calendar)?.has('archive.read'), false);
-  assert.equal(authorize('Bearer ' + reader)?.has('calendar.read'), false);
+  assert.deepEqual([...authorize('Bearer ' + calendar)!.scopes], ['calendar.read', 'calendar.create']);
+  assert.equal(authorize('Bearer ' + calendar)?.scopes.has('calendar.delete'), false);
+  assert.equal(authorize('Bearer ' + calendar)?.scopes.has('archive.read'), false);
+  assert.equal(authorize('Bearer ' + reader)?.scopes.has('calendar.read'), false);
 });
 
 test('absent, wrong and partial credentials never authenticate', () => {
