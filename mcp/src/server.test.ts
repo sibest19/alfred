@@ -151,10 +151,16 @@ test('the write tools call fixed paths with their method and a JSON body', async
   assert.equal(new URL(calls[2].path, 'http://api').searchParams.get('occurrence'), '2026-11-13');
 });
 
+test('whatsapp_search passes the poller cursor to the API', async () => {
+  const answer = await call('whatsapp_search', { after_id: 1002, chat: 'trial-group@g.us' });
+  assert.ok(!answer.error && !answer.result.isError);
+  assert.equal(new URL(calls.at(-1)!.path, 'http://api').searchParams.get('after_id'), '1002');
+});
+
 test('unknown tools, injected URLs, invalid IDs and excessive limits never reach the API', async () => {
   for (const [name, args] of [
     ['delete_event', {}], ['whatsapp_search', { url: 'http://evil.test' }],
-    ['whatsapp_context', { id: '../../notes' }], ['whatsapp_search', { limit: 101 }],
+    ['whatsapp_context', { id: '../../notes' }], ['whatsapp_search', { limit: 101 }], ['whatsapp_search', { after_id: 0 }], ['whatsapp_search', { after_id: '1 OR 1=1' }],
     ['whatsapp_context', { id: 1, before: 51 }], ['whatsapp_find_contact', { q: '   ' }],
     ['mail_read', { ids: [] }], ['mail_read', { ids: ['INBOX:1,INBOX:2'] }], ['mail_read', { ids: ['../x'] }], ['mail_read', { ids: ['INBOX\n:1'] }],
     ['mail_search', { limit: 51 }], ['mail_search', { account: '../x' }], ['mail_read', { ids: ['Personal#1'] }], ['mail_read', { ids: ['personal#1,2'] }], ['calendar_events', { calendar: 'x', url: 'http://evil.test' }],
