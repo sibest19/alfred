@@ -1,0 +1,29 @@
+# check.sh's changes to compose.yaml: Honcho's own deterministic mock provider stands in for OpenRouter, no network
+# leads out, and the tokenizer files Honcho would download at start come from check.sh.
+x-check: &check
+  environment:
+    LLM_OPENAI_BASE_URL: http://honcho-mock:8106/v1
+    EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: http://honcho-mock:8106/v1
+    TIKTOKEN_CACHE_DIR: /tiktoken
+  volumes:
+    - ${HONCHO_CHECK_TIKTOKEN:?}:/tiktoken:ro
+  restart: "no"
+
+services:
+  honcho: *check
+  honcho-deriver: *check
+  honcho-db:
+    restart: "no"
+  honcho-mock:
+    image: ghcr.io/plastic-labs/honcho:v3.6.0@sha256:eb906a2d251aa48b22347e4465b40785ea7a84e2bfd1105780416bf1f0121099
+    entrypoint: [/app/.venv/bin/fastapi, run, --host, 0.0.0.0, --port, "8106", src/mock_provider/main.py]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [honcho-models]
+
+networks:
+  honcho-models:
+    internal: true

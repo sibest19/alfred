@@ -44,9 +44,10 @@ jobs:
 
           # Checked again, renamed files under both names
           files=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
-          # sandbox/ is the boundary around Alfred's shell: its sshd and isolation are changed by hand only
-          if grep -qE '^(\.github/|opencode\.json$|smoke/|db/migrations/|sandbox/)' <<<"$files"; then
-            echo 'touches CI, the agent, the smoke tests, the migrations or the sandbox'
+          # sandbox/ is the boundary around Alfred's shell, honcho/ holds its memory and that memory's check:
+          # both are changed by hand only
+          if grep -qE '^(\.github/|opencode\.json$|smoke/|db/migrations/|sandbox/|honcho/)' <<<"$files"; then
+            echo 'touches CI, the agent, the smoke tests, the migrations, the sandbox or the memory'
             exit 0
           fi
 
