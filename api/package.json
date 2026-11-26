@@ -2,7 +2,7 @@
   "name": "@alfred/api",
   "version": "0.4.0",
   "private": true,
-  "description": "HTTP API over the archive and the notes",
+  "description": "HTTP API over the archive, mail, calendars and to-dos",
   "type": "module",
   "scripts": {
     "build": "tsc -p .",

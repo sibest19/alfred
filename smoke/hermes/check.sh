@@ -23,7 +23,7 @@ expected = {
 assert os.geteuid() == 10000
 assert not Path("/var/run/docker.sock").exists()
 for key in (
-    "PGPASSWORD", "API_TOKEN", "ALFRED_API_TOKEN", "OPENROUTER_API_KEY",
+    "PGPASSWORD", "API_SCOPED_TOKENS", "ALFRED_API_TOKEN", "OPENROUTER_API_KEY",
     "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "TELEGRAM_BOT_TOKEN",
 ):
     assert not os.environ.get(key), key

@@ -36,8 +36,12 @@ services:
       PGUSER: assistant_api
       PGPASSWORD: smoke
       PGDATABASE: assistant
+      # A retired variable left in a deployment: run.sh checks that its token is refused
       API_TOKEN: smoke-token-0123456789
-      API_SCOPED_TOKENS: '{"hermes":{"token":"smoke-reader-0123456789","scopes":["archive.read"]}}'
+      API_SCOPED_TOKENS: >-
+        {"hermes":{"token":"smoke-reader-0123456789","scopes":["archive.read"]},
+        "writer":{"token":"smoke-writer-0123456789","scopes":["archive.read","mail.read","calendar.read",
+        "calendar.create","calendar.update","calendar.delete","todos.read","todos.manage"]}}
     ports:
       - 127.0.0.1:18081:8080
     networks:

@@ -2,26 +2,26 @@
 
 <img src="docs/alfred.png" alt="Illustrated portrait of Alfred" width="200">
 
-The backend of a private assistant: an archive of a WhatsApp account, an HTTP API over it with notes and reminders, and local speech-to-text. An agent (an n8n workflow, here) talks to the API only and never holds database credentials.
+The backend of a private assistant: an archive of a WhatsApp account, an HTTP API over it and the user's mail, calendars and to-dos, and local speech-to-text. The agent (Hermes) reaches the API only through the MCP adapter and never holds database credentials.
 
 | Service | | Image |
 |---|---|---|
 | [`ingest/`](ingest) | Links to WhatsApp as a read-only device and archives every message, edit, reaction, chat, contact and media file into Postgres | `ghcr.io/sibest19/alfred-ingest` |
-| [`api/`](api) | Message search, conversation context, counts, chats, contacts, notes, reminders, iCloud Mail and Calendar, and speech-to-text over HTTP, behind a bearer token | `ghcr.io/sibest19/alfred-api` |
+| [`api/`](api) | Message search, conversation context, counts, chats, contacts, iCloud and Gmail mail, iCloud and Radicale calendars, and Radicale to-dos over HTTP, behind scoped bearer tokens | `ghcr.io/sibest19/alfred-api` |
 | [`transcriber/`](transcriber) | Speech-to-text (Parakeet Ultra, ONNX) on an Intel GPU or the CPU; voice notes become searchable text | `ghcr.io/sibest19/alfred-transcriber` |
 | [`db/`](db) | Shared Postgres client and the schema migrations (applied by `ingest`) | |
-| [`mcp/`](mcp) | Scoped read-only WhatsApp, iCloud Mail and Calendar tools for Hermes and other MCP clients, over the HTTP API | `ghcr.io/sibest19/alfred-mcp` |
+| [`mcp/`](mcp) | Scoped WhatsApp, mail, calendar and to-do tools for Hermes and other MCP clients (archive and mail read-only), over the HTTP API | `ghcr.io/sibest19/alfred-mcp` |
 | [`sandbox/`](sandbox) | Where Alfred's shell runs: Hermes's terminal, file and code tools reach it over SSH, with no credentials, privileges or route to the archive (see its README for what Hermes copies there) | `ghcr.io/sibest19/alfred-sandbox` |
 | [`hermes/`](hermes) | Hermes Agent with the pinned Honcho memory provider, its entrypoint is the Hermes CLI (not s6), so it runs as any UID with a read-only root | `ghcr.io/sibest19/alfred-hermes` |
 | [`honcho/`](honcho) | Hermes's memory: a self-hosted Honcho server with its model on OpenRouter, Hermes's settings for it and backup, checked offline by `honcho/check.sh` | `ghcr.io/plastic-labs/honcho` (upstream) |
 
 ```
-WhatsApp ── ingest ──▶ Postgres ◀── api ◀── agent (n8n, …)
-               │                     │
-               └──── transcriber ◀───┘
+WhatsApp ── ingest ──▶ Postgres ◀── api ◀── mcp ◀── agent (Hermes)
+               │
+               └──── transcriber
 ```
 
-Each image has its own release line, tagged `<service>/vX.Y.Z` (`api/v0.9.21` → `alfred-api:0.9.21`; up to `v0.9.20` one version covered all five). A migration in `db/` is applied by `ingest`: deploy that `ingest` release before the `api` one that needs it. A compose setup: Postgres (pgvector image), `ingest` with a media volume, `api` with its own role, `transcriber` with the GPU's render device. n8n reaches the API; a Hermes pilot reaches only `mcp`, whose dedicated scoped token permits archive reads through the API.
+Each image has its own release line, tagged `<service>/vX.Y.Z` (`api/v0.9.21` → `alfred-api:0.9.21`; up to `v0.9.20` one version covered all five). A migration in `db/` is applied by `ingest`: deploy that `ingest` release before the `api` one that needs it. A migration that drops what an older `api` still reads goes the other way: migration `008` drops the notes, consolidations and reminders of the retired n8n agent, so deploy an `api` release without those routes first, then the `ingest` release that carries `008`; `008` refuses to run while a reminder is still pending (see [`db/`](db)). A compose setup: Postgres (pgvector image), `ingest` with a media volume, `api` with its own role, `transcriber` with the GPU's render device. Hermes reaches only `mcp`, whose dedicated scoped token permits only its tools' scopes on the API.
 
 ## Development
 
@@ -31,7 +31,7 @@ stay open until their acceptance checks pass.
 
 Node 26, pnpm as pinned in `package.json`, TypeScript, pnpm workspaces (`db`, `ingest`, `api`, `mcp`): `pnpm install --frozen-lockfile && pnpm build && pnpm typecheck && pnpm test`, then `node ingest/dist/index.js` or `node api/dist/index.js` with the `PG*` variables set. The transcriber is Python (`transcriber/requirements.txt`). Images build from the repository root (`docker build -f ingest/Dockerfile .`; the transcriber from `transcriber/`, Hermes from `hermes/`, checked by `hermes/check.sh`, its [sandbox](sandbox) from `sandbox/`, checked by `sandbox/check.sh`). Pushing a `<service>/v*` tag publishes that service's image. See [`mcp/`](mcp) for its configuration, container isolation and tests.
 
-CI (`.github/workflows/image.yml`) builds, then runs [`smoke/run.sh`](smoke/run.sh) on the ingest and API images: a fresh Postgres, ingest up to WhatsApp's pairing QR (the handshake a Baileys or WhatsApp change breaks first), the API's reads and writes. It also runs daily on `main`, since WhatsApp can break the current Baileys with no change here. [`smoke/transcriber.sh`](smoke/transcriber.sh) runs the transcriber image on the CPU (CI has no Intel GPU) and checks that a spoken sentence comes back as text. A failure outside pull requests (the daily run, `main`, a release) opens a `ci-failure` issue (`alert.yml`), closed by the next successful run, and starts an agent on it (`agent.yml`: [OpenCode](https://opencode.ai/docs/github/) with a model on OpenRouter set by the repository variable `AGENT_MODEL`, through its own GitHub App, which can't change workflows or secrets) that opens a fix, merged once every check passes (`automerge.yml`, started by the agent workflow only) unless it touches CI, the agent, the smoke tests, the migrations, the sandbox or the memory (`honcho/`). A comment by a collaborator starting with `/oc` starts it on any issue or pull request; those fixes wait for a manual merge, since the agent then reads a thread anyone can write in.
+CI (`.github/workflows/image.yml`) builds, then runs [`smoke/run.sh`](smoke/run.sh) on the ingest and API images: a fresh Postgres, ingest up to WhatsApp's pairing QR (the handshake a Baileys or WhatsApp change breaks first), the API's reads, its write routes and its permission checks with scoped tokens. It also runs daily on `main`, since WhatsApp can break the current Baileys with no change here. [`smoke/transcriber.sh`](smoke/transcriber.sh) runs the transcriber image on the CPU (CI has no Intel GPU) and checks that a spoken sentence comes back as text. A failure outside pull requests (the daily run, `main`, a release) opens a `ci-failure` issue (`alert.yml`), closed by the next successful run, and starts an agent on it (`agent.yml`: [OpenCode](https://opencode.ai/docs/github/) with a model on OpenRouter set by the repository variable `AGENT_MODEL`, through its own GitHub App, which can't change workflows or secrets) that opens a fix, merged once every check passes (`automerge.yml`, started by the agent workflow only) unless it touches CI, the agent, the smoke tests, the migrations, the sandbox or the memory (`honcho/`). A comment by a collaborator starting with `/oc` starts it on any issue or pull request; those fixes wait for a manual merge, since the agent then reads a thread anyone can write in.
 
 Dependencies stay current through [Renovate](.github/renovate.json5): one pull request per update, merged by Renovate when CI passes. Majors wait for a manual merge, except those of the GitHub Actions and the dev tools; the transcriber's updates come once a month. Every push to `main` that changes what goes into an image (the service's directory; for `ingest` and `api` also `db/`; for the Node services also the workspace's lock file and shared configuration) is published by `release.yml` as that service's next patch version.
 

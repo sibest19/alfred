@@ -26,7 +26,7 @@ Variables are listed in `env.example`. Keep real secrets outside Git:
   credentials, query or fragment. Redirects are refused.
 - `ALFRED_API_TOKEN`: dedicated scoped credential with only the scopes of the
   tools to offer (`archive.read`; `mail.read`; `calendar.read` and the calendar write
-  scopes; `todos.read`, `todos.manage`), never the legacy full-access `API_TOKEN`.
+  scopes; `todos.read`, `todos.manage`), shared with no other caller.
 - `MCP_TOKEN`: a different secret presented by Hermes. Inbound credentials are
   never forwarded to Alfred. Both secrets need at least 16 bytes, no whitespace.
 - `MCP_ALLOWED_HOSTS`: explicit hostnames without ports; defaults to
@@ -131,9 +131,5 @@ fails, the tool error retains `status: "processed"`, the reply and
 actions or some Telegram chunks may already have completed. A disconnected MCP
 client does not cancel or roll back Hermes's actions.
 
-Migration: move clients to this endpoint and its new dedicated credential;
-verify initialize/list/call and Telegram delivery, then revoke the old n8n
-bearer credential and remove the retired MCP workflow and routing. Keep that
-credential revoked in backups/restores; rollback must use the current bridge
-and credentials rather than reactivating the old workflow. No n8n forwarding
-fallback is provided. Unit tests use synthetic Hermes/Telegram replies only.
+Rollbacks and restores use this bridge and its current credentials; there is no
+other path to Alfred. Unit tests use synthetic Hermes/Telegram replies only.

@@ -1,19 +1,16 @@
 import { timingSafeEqual } from 'node:crypto';
 
 export const SCOPES = [
-  'archive.read', 'notes.read', 'notes.write', 'notes.delete', 'notes.consolidate',
-  'reminders.read', 'reminders.manage', 'reminders.claim', 'mail.read',
-  'calendar.read', 'calendar.create', 'calendar.update', 'calendar.delete', 'todos.read', 'todos.manage', 'audio.transcribe',
+  'archive.read', 'mail.read',
+  'calendar.read', 'calendar.create', 'calendar.update', 'calendar.delete', 'todos.read', 'todos.manage',
 ] as const;
 export type Scope = typeof SCOPES[number];
 
-/** The legacy token keeps its permissions; new credentials receive only explicit scopes. A caller is named by its
- * key in API_SCOPED_TOKENS (`legacy` for API_TOKEN), for the request log, never by its token. */
-export function createAuthorizer(legacyToken: string, scopedTokens = '{}') {
-  if (Buffer.byteLength(legacyToken) < 16) throw new Error('API_TOKEN must be set (16 bytes or more)');
-  const credentials: { name: string; token: Buffer; scopes: ReadonlySet<Scope> }[] = [
-    { name: 'legacy', token: Buffer.from(legacyToken), scopes: new Set(SCOPES) },
-  ];
+/** Every credential receives only its explicit scopes. A caller is named by its key in API_SCOPED_TOKENS, for the
+ * request log, never by its token. */
+export function createAuthorizer(scopedTokens: string) {
+  if (!scopedTokens.trim()) throw new Error('API_SCOPED_TOKENS must be set: the API has no other credential');
+  const credentials: { name: string; token: Buffer; scopes: ReadonlySet<Scope> }[] = [];
   let parsed: unknown;
   try { parsed = JSON.parse(scopedTokens); }
   catch { throw new Error('API_SCOPED_TOKENS must be a JSON object'); }
@@ -37,6 +34,7 @@ export function createAuthorizer(legacyToken: string, scopedTokens = '{}') {
     }
     credentials.push({ name, token: bytes, scopes: new Set(scopes) });
   }
+  if (!credentials.length) throw new Error('API_SCOPED_TOKENS must name at least one credential');
   return (header: string | undefined): { name: string; scopes: ReadonlySet<Scope> } | undefined => {
     const given = Buffer.from(header?.replace(/^Bearer\s+/i, '') ?? '');
     const match = credentials.find((c) => c.token.length === given.length && timingSafeEqual(c.token, given));

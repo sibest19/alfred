@@ -1,7 +1,7 @@
-// HTTP API over the archive and the notes, for an agent (n8n, …) that shouldn't hold database credentials.
+// HTTP API over the archive, mail, calendars and to-dos, for an agent that shouldn't hold database credentials.
 // Its own service and container, so a restart never touches the WhatsApp session.
-// Read-only on the archive and on the mail; writes notes, reminders, calendar events (iCloud, Radicale) and to-dos (Radicale). Every request but /health
-// and /openrouter/v1/ (the caller's OpenRouter key passes through) needs a configured bearer token and the route's scope.
+// Read-only on the archive and on the mail; writes calendar events (iCloud, Radicale) and to-dos (Radicale). Every request but /health
+// needs a configured bearer token and the route's scope.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { pino } from 'pino';
 import { sql } from '@alfred/db';
@@ -10,20 +10,12 @@ import { createAuthorizer, type Scope } from './auth.js';
 import { createEvent, deleteEvent, listEvents, updateEvent } from './calendar.js';
 import { config } from './config.js';
 import { HttpError, readJson, tz, type Query } from './http.js';
-import { openrouter } from './llm.js';
 import { readMail, searchMail } from './mail.js';
-import {
-  createNote, deleteNote, mergeNotes, pendingConsolidation, putSummary, recordConsolidation, restoreNote, searchNotes, topics, updateNote,
-} from './notes.js';
-import {
-  cancelReminder, claimDue, createReminder, doneReminder, listReminders, snoozeReminder, updateReminder,
-} from './reminders.js';
 import { createTodo, deleteTodo, doneTodo, listTodos, updateTodo } from './todos.js';
-import { transcribe } from './transcribe.js';
 
 const log = pino({ level: config.logLevel });
 let authorize: ReturnType<typeof createAuthorizer>;
-try { authorize = createAuthorizer(config.apiToken, config.apiScopedTokens); }
+try { authorize = createAuthorizer(config.apiScopedTokens); }
 catch (err) {
   log.fatal(err instanceof Error ? err.message : 'Invalid API authorization configuration');
   process.exit(1);
@@ -38,24 +30,6 @@ const routes: [string, RegExp, Scope, Handler][] = [
   ['GET', /^\/stats$/, 'archive.read', (_r, q) => stats(q)],
   ['GET', /^\/chats$/, 'archive.read', (_r, q) => chats(q)],
   ['GET', /^\/contacts$/, 'archive.read', (_r, q) => contacts(q)],
-  ['GET', /^\/notes$/, 'notes.read', (_r, q) => searchNotes(q)],
-  ['POST', /^\/notes$/, 'notes.write', async (r) => createNote(await readJson(r))],
-  ['GET', /^\/notes\/topics$/, 'notes.read', () => topics()],
-  ['PUT', /^\/notes\/summaries$/, 'notes.consolidate', async (r) => putSummary(await readJson(r))],
-  ['POST', /^\/notes\/merge$/, 'notes.consolidate', async (r) => mergeNotes(await readJson(r))],
-  ['PATCH', /^\/notes\/(\d+)$/, 'notes.write', async (r, _q, id) => updateNote(id, await readJson(r))],
-  ['DELETE', /^\/notes\/(\d+)$/, 'notes.delete', (_r, _q, id) => deleteNote(id)],
-  ['POST', /^\/notes\/(\d+)\/restore$/, 'notes.write', (_r, _q, id) => restoreNote(id)],
-  ['GET', /^\/consolidations\/pending$/, 'notes.consolidate', () => pendingConsolidation()],
-  ['POST', /^\/consolidations$/, 'notes.consolidate', async (r) => recordConsolidation(await readJson(r))],
-  ['GET', /^\/reminders$/, 'reminders.read', (_r, q) => listReminders(q)],
-  ['POST', /^\/reminders$/, 'reminders.manage', async (r) => createReminder(await readJson(r))],
-  ['POST', /^\/reminders\/due$/, 'reminders.claim', () => claimDue()],
-  ['PATCH', /^\/reminders\/(\d+)$/, 'reminders.manage', async (r, _q, id) => updateReminder(id, await readJson(r))],
-  ['DELETE', /^\/reminders\/(\d+)$/, 'reminders.manage', (_r, _q, id) => cancelReminder(id)],
-  ['POST', /^\/reminders\/(\d+)\/snooze$/, 'reminders.manage', async (r, _q, id) => snoozeReminder(id, await readJson(r))],
-  ['POST', /^\/reminders\/(\d+)\/done$/, 'reminders.manage', (_r, _q, id) => doneReminder(id)],
-  ['POST', /^\/transcribe$/, 'audio.transcribe', (r) => transcribe(r)],
   ['GET', /^\/mail$/, 'mail.read', (_r, q) => searchMail(q)],
   ['GET', /^\/mail\/read$/, 'mail.read', (_r, q) => readMail(q)],
   ['GET', /^\/calendar\/events$/, 'calendar.read', (_r, q) => listEvents(q)],
@@ -83,10 +57,6 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     await sql`SELECT 1`;
     return send(res, 200, { ok: true });
   }
-  if (url.pathname.startsWith('/openrouter/v1/')) {
-    if (authorize(req.headers.authorization)) return send(res, 403, { error: 'use an OpenRouter credential, not an API token' });
-    return log.info(await openrouter(req, res, url), 'model call');
-  }
   const caller = authorize(req.headers.authorization);
   if (!caller) return send(res, 401, { error: 'missing or wrong bearer token' });
   callers.set(req, caller.name);
@@ -100,7 +70,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       continue;
     }
     if (!caller.scopes.has(scope)) return send(res, 403, { error: 'token does not permit this operation' });
-    return send(res, method === 'POST' && ['/notes', '/consolidations', '/reminders', '/calendar/events', '/todos'].includes(path) ? 201 : 200, await handler(req, url.searchParams, m[1] ?? ''));
+    return send(res, method === 'POST' && ['/calendar/events', '/todos'].includes(path) ? 201 : 200, await handler(req, url.searchParams, m[1] ?? ''));
   }
   send(res, methodMismatch ? 405 : 404, { error: methodMismatch ? 'method not allowed' : 'not found' });
 }
