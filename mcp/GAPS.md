@@ -13,8 +13,11 @@ Current adapter: dedicated private bearer token (MCP-02, intentional for a singl
 
 The isolated Hermes trial now passes both scripted and real-model scenarios with
 synthetic data. This does not validate production deployment. Remaining gates
-include host/LAN/IPv6 egress verification,
-Host UID/ACL validation, and backup/restore before importing memory.
+include host/LAN/IPv6 egress verification and
+Host UID/ACL validation. Backup/restore of Hermes's memory is covered: `honcho/check.sh`
+(CI `smoke` job) restores a `pg_dump` of Honcho's database into a fresh one and a new Hermes
+session recalls from it ([`honcho/README.md`](../honcho/README.md), Backup). Hermes's own
+data volume (sessions, `auth.json`, `honcho.json`) is not covered by it.
 
 Update each row with the fixing commit and test evidence when closing it.
 Do not replace an open item with an assumption that the SDK handles it.

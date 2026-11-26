@@ -6,7 +6,8 @@ as any UID on a read-only root with `HERMES_HOME` (`/opt/data`) as its only writ
 back from a remote terminal backend ([sandbox](../sandbox/README.md)). Run it with an init process. [`check.sh`](check.sh)
 checks the built image offline.
 
-Its tools are the [MCP adapter](../mcp/README.md) and, when configured, the [sandbox](../sandbox/README.md).
+Its tools are the [MCP adapter](../mcp/README.md) and, when configured, the [sandbox](../sandbox/README.md). Its
+memory is a self-hosted [Honcho](../honcho/README.md).
 
 ## Model on a ChatGPT plan
 

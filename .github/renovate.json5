@@ -74,6 +74,12 @@
       matchUpdateTypes: ['major'],
       enabled: false,
     },
+    // Honcho's server moves with the memory provider pinned in hermes/Dockerfile, which Renovate can't update, and
+    // its database holds the memory: honcho/ updates wait for a manual merge (honcho/README.md)
+    {
+      matchFileNames: ['honcho/**'],
+      automerge: false,
+    },
     // The onnxruntime versions onnx-asr excludes (see transcriber/requirements.txt)
     {
       matchPackageNames: ['onnxruntime'],

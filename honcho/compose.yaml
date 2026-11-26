@@ -1,0 +1,84 @@
+# Honcho, Hermes's memory (README.md). Hermes reaches only `honcho`, over the internal `honcho` network; the
+# database is on its own internal network, and only `honcho-models` leads out, to the model provider.
+# Values come from the environment or a .env file beside this one (README.md, Configuration).
+x-honcho: &honcho
+  depends_on:
+    honcho-db:
+      condition: service_healthy
+  environment:
+    DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:?}@honcho-db:5432/honcho
+    AUTH_USE_AUTH: "true"
+    AUTH_JWT_SECRET: ${HONCHO_JWT_SECRET:?}
+    LLM_OPENAI_API_KEY: ${HONCHO_OPENROUTER_KEY:?}
+    LLM_OPENAI_BASE_URL: https://openrouter.ai/api/v1
+    # Every feature that calls a text model (README.md, What calls the model)
+    DERIVER_MODEL_CONFIG__MODEL: ${HONCHO_MODEL:?}
+    SUMMARY_MODEL_CONFIG__MODEL: ${HONCHO_MODEL:?}
+    DREAM_DEDUCTION_MODEL_CONFIG__MODEL: ${HONCHO_MODEL:?}
+    DREAM_INDUCTION_MODEL_CONFIG__MODEL: ${HONCHO_MODEL:?}
+    DIALECTIC_LEVELS__minimal__MODEL_CONFIG__MODEL: ${HONCHO_MODEL:?}
+    DIALECTIC_LEVELS__low__MODEL_CONFIG__MODEL: ${HONCHO_MODEL:?}
+    DIALECTIC_LEVELS__medium__MODEL_CONFIG__MODEL: ${HONCHO_MODEL:?}
+    DIALECTIC_LEVELS__high__MODEL_CONFIG__MODEL: ${HONCHO_MODEL:?}
+    DIALECTIC_LEVELS__max__MODEL_CONFIG__MODEL: ${HONCHO_MODEL:?}
+    # Embeddings have their own client, which reads the base URL only from here
+    EMBEDDING_MODEL_CONFIG__MODEL: openai/text-embedding-3-small
+    EMBEDDING_MODEL_CONFIG__OVERRIDES__BASE_URL: https://openrouter.ai/api/v1
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+  mem_limit: 1g
+  restart: unless-stopped
+
+services:
+  honcho:
+    <<: *honcho
+    image: ghcr.io/plastic-labs/honcho:v3.6.0@sha256:eb906a2d251aa48b22347e4465b40785ea7a84e2bfd1105780416bf1f0121099
+    # Applies the migrations, then serves the API on port 8000
+    entrypoint: [sh, docker/entrypoint.sh]
+    networks: [honcho, honcho-db, honcho-models]
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+  honcho-deriver:
+    <<: *honcho
+    image: ghcr.io/plastic-labs/honcho:v3.6.0@sha256:eb906a2d251aa48b22347e4465b40785ea7a84e2bfd1105780416bf1f0121099
+    entrypoint: [/app/.venv/bin/python, -m, src.deriver]
+    depends_on:
+      honcho:
+        condition: service_healthy
+    networks: [honcho-db, honcho-models]
+  honcho-db:
+    image: docker.io/pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
+    environment:
+      POSTGRES_USER: honcho
+      POSTGRES_PASSWORD: ${HONCHO_DB_PASSWORD:?}
+      POSTGRES_DB: honcho
+    volumes:
+      - honcho-db:/var/lib/postgresql
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    networks: [honcho-db]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, pg_isready, -U, honcho, -d, honcho]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+networks:
+  honcho:
+    internal: true
+  honcho-db:
+    internal: true
+  honcho-models: {}
+
+volumes:
+  honcho-db:
