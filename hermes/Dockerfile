@@ -14,6 +14,17 @@ COPY --from=plugin /plugin/ /opt/hermes/plugins/memory/honcho/
 COPY honcho.requirements.txt /tmp/honcho.requirements.txt
 RUN set -- /opt/hermes/tools/uv-*/uv; "$1" pip install --python /opt/hermes/.venv/bin/python --require-hashes --no-deps -r /tmp/honcho.requirements.txt \
  && rm /tmp/honcho.requirements.txt
+# The ssh terminal backend (Alfred's sandbox, sandbox/README.md) copies the sandbox's ~/.hermes back into HERMES_HOME
+# when it closes, so one command run there could plant a skill every later session loads. Uploads stay; that copy goes.
+# shortcut: patches Hermes's code, fails the build when upstream changes it; drop it once Hermes can disable sync-back.
+RUN /opt/hermes/.venv/bin/python - <<'PY'
+from pathlib import Path
+path = Path("/opt/hermes/tools/environments/file_sync.py")
+source = path.read_text()
+old = "        with self._transaction_lock:\n            self._sync_back_transaction(hermes_home=hermes_home)\n"
+assert source.count(old) == 1, "FileSyncManager.sync_back changed upstream: review this patch"
+path.write_text(source.replace(old, "        return  # alfred: nothing comes back from a remote terminal backend\n"))
+PY
 WORKDIR /opt/hermes
 ENV HOME=/opt/data
 ENTRYPOINT ["/opt/hermes/.venv/bin/python", "-m", "hermes_cli.main"]

@@ -66,9 +66,17 @@ jobs:
           load: true
           tags: alfred-hermes:smoke
           cache-from: type=gha,scope=hermes
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: sandbox
+          file: sandbox/Dockerfile
+          load: true
+          tags: alfred-sandbox:smoke
+          cache-from: type=gha,scope=sandbox
       - run: smoke/run.sh
       - run: API_IMAGE=alfred-api:smoke smoke/hermes/utf8.sh
       - run: hermes/check.sh
+      - run: sandbox/check.sh
 
   # The transcriber image on the CPU (CI has no Intel GPU): the model loads and a spoken sentence comes back
   transcriber:
@@ -120,6 +128,10 @@ jobs:
           - service: hermes
             dockerfile: hermes/Dockerfile
             context: hermes
+            platforms: linux/amd64,linux/arm64
+          - service: sandbox
+            dockerfile: sandbox/Dockerfile
+            context: sandbox
             platforms: linux/amd64,linux/arm64
           # the OpenVINO runtime has no ARM wheels
           - service: transcriber

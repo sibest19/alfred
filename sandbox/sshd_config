@@ -1,0 +1,27 @@
+# sshd as the unprivileged sandbox user: key-only login for Hermes, no forwarding of any kind, so the sandbox can't
+# become a proxy into Hermes's network or out of its own.
+Port 2222
+PidFile none
+HostKey /workspace/.sshd/host_ed25519
+# A read-only mount of Hermes's public key. Bind mounts keep the host's file owner, which StrictModes would refuse.
+AuthorizedKeysFile /etc/ssh/sandbox/authorized_keys
+StrictModes no
+AllowUsers sandbox
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+UsePAM no
+AllowTcpForwarding no
+AllowStreamLocalForwarding no
+AllowAgentForwarding no
+GatewayPorts no
+PermitTunnel no
+X11Forwarding no
+PermitUserEnvironment no
+# No AcceptEnv: Hermes's env passthrough (SendEnv) can't carry its variables, credentials included, into the sandbox
+PermitUserRC no
+# Hermes's ControlMaster multiplexes its commands over one connection
+MaxSessions 16
+ClientAliveInterval 30
+LogLevel INFO
