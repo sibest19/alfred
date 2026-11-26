@@ -1,10 +1,10 @@
 # api
 
-Serves the archive and a notes table over HTTP, for an agent that shouldn't hold database credentials, and the user's iCloud Mail and Calendar, Gmail accounts and a Radicale (CalDAV) server's calendars and to-do lists. It reads the archive and the mail, and writes only notes, reminders, calendar events and to-dos; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` and `/openrouter/v1/` needs a bearer credential. The existing `API_TOKEN` retains full API access; optional scoped tokens restrict new callers. Dates without an offset are read and shown in `TZ`.
+Serves the archive over HTTP, for an agent that shouldn't hold database credentials, and the user's iCloud Mail and Calendar, Gmail accounts and a Radicale (CalDAV) server's calendars and to-do lists. It reads the archive and the mail, and writes only calendar events and to-dos; it runs apart from the ingester, so a restart never touches the WhatsApp session. Image `ghcr.io/sibest19/alfred-api:<version>`. Every request except `/health` needs a scoped bearer credential. Dates without an offset are read and shown in `TZ`.
 
 ## Scoped credentials
 
-Set `API_SCOPED_TOKENS` to a JSON object of named credentials, for example:
+`API_SCOPED_TOKENS` (required) is a JSON object of named credentials, the API's only credentials, for example:
 
 ```json
 {"hermes":{"token":"replace-with-a-unique-random-secret","scopes":["archive.read"]}}
@@ -12,36 +12,33 @@ Set `API_SCOPED_TOKENS` to a JSON object of named credentials, for example:
 
 Generate a distinct random secret for every caller, store it outside Git, and send
 it as `Authorization: Bearer <token>`. Names are configuration labels, not secrets
-or permissions; each request's log line names its caller (`caller`, `legacy` for
-`API_TOKEN`), so the log shows which credential made every write. Invalid/duplicate tokens and unknown scopes prevent startup;
-missing/wrong credentials return `401`, insufficient scope returns `403` before
-the handler runs. Omit the variable to preserve existing n8n behavior. API tokens
-are rejected on `/openrouter/v1/` rather than forwarded to OpenRouter; that route
-still takes the caller's own OpenRouter key.
+or permissions; each request's log line names its caller (`caller`), so the log
+shows which credential made every write. A missing or empty variable, invalid or
+duplicate tokens and unknown scopes prevent startup; missing/wrong credentials
+return `401`, insufficient scope returns `403` before the handler runs, and an
+unknown route `404`.
 
 | Scope | Operations |
 |---|---|
 | `archive.read` | GET messages, message context, stats, chats and contacts |
-| `notes.read` | GET notes and topic index |
-| `notes.write` | Create, update and restore notes |
-| `notes.delete` | Soft-delete notes |
-| `notes.consolidate` | Merge notes, write summaries, inspect/record consolidations |
-| `reminders.read` | List reminders |
-| `reminders.manage` | Create, change, cancel, snooze and finish reminders |
-| `reminders.claim` | Claim due reminders; scheduler only |
 | `mail.read` | Search/read iCloud and Gmail mail |
 | `calendar.read` | List calendar events |
 | `calendar.create`, `calendar.update`, `calendar.delete` | The corresponding calendar write |
 | `todos.read` | List Radicale to-dos |
 | `todos.manage` | Create, change, complete and delete Radicale to-dos |
-| `audio.transcribe` | Transcribe uploaded audio |
 
 Every registered API route must declare a scope. These are operation permissions,
-not per-chat/account restrictions or user approvals. Keep a future Hermes pilot
-at `archive.read` until origin policy and write approvals are implemented. The
-legacy full-access token must not be given to Hermes.
+not per-chat/account restrictions or user approvals. Give each caller only the
+scopes of the tools it offers (the MCP adapter's are in [`../mcp`](../mcp)).
 
-Give it its own login with the `api_access` role (created by the migrations: read on the archive, write on notes and reminders, nothing on `wa_auth`):
+The notes, consolidations, reminders (`/notes`, `/consolidations`, `/reminders`),
+speech-to-text (`POST /transcribe`) and model proxy (`/openrouter/v1/`) routes, their
+scopes and the full-access `API_TOKEN` served a retired n8n agent and are gone: those
+routes answer `404`, a credential naming one of their scopes prevents startup, and
+`API_TOKEN` is not read (remove it from the deployment). Deploy this release before
+the `ingest` release whose migration `008` drops their tables (see [`../db`](../db)).
+
+Give it its own login with the `api_access` role (created by the migrations: read on the archive, nothing on `wa_auth`):
 
 ```sql
 CREATE ROLE assistant_api LOGIN PASSWORD '…' IN ROLE api_access;
@@ -55,24 +52,6 @@ ALTER ROLE assistant_api SET statement_timeout = '15s';
 | `GET /stats` | message counts with the `/messages` filters, `group_by` `chat` \| `sender` \| `day` \| `month` \| `kind`: the 100 biggest groups, or the latest 100 days or months; `total` counts them all |
 | `GET /chats` | chats by name (`q`), most recent first |
 | `GET /contacts` | contacts by name or number (`q`), with their phone number |
-| `GET /notes` | `q` (words, a name, a tag or a topic), `tag`, `kind`, `topic` (that topic and everything under it), `archived=true` (also deleted and merged notes, with `merged_into`), `limit` (20, max 500); summaries first, no `q` = latest |
-| `POST /notes` | JSON `title`, `content`, `kind` (`note`, `fact`, `preference`, `idea`, `link`, `todo`), `tags` (array or comma-separated), `topic`, `source` (`user` \| `assistant`) |
-| `PATCH /notes/<id>` | the fields to change; empty ones are kept, tags are replaced (`kind` can't become `summary`: see `PUT /notes/summaries`) |
-| `DELETE /notes/<id>` | soft delete (`deleted_at`) |
-| `POST /notes/<id>/restore` | brings back a deleted or merged note; one taken out of a merge shows that note as `kept_apart_from` |
-| `POST /notes/merge` | JSON `ids` and either `into` (an existing note, updated with the fields given) or the fields of a new note; the `ids` are archived with `merged_into` |
-| `GET /notes/topics` | the topic index: each topic with its note count and the start of its summary, and `text`, the same as lines for a prompt |
-| `PUT /notes/summaries` | JSON `topic`, `content` (`title`, `tags`): creates or replaces the topic's summary note |
-| `GET /consolidations/pending` | notes created, changed or deleted since the last recorded consolidation started (so that run's own changes show up once more) |
-| `POST /consolidations` | JSON `started_at` (ISO; without an offset, in `TZ`), `changes`, `report`: records a consolidation run |
-| `GET /reminders` | `status` (`open`: pending, and fired in the last day; `pending`, `fired`, `done`, `cancelled`, `all`), `q` (words in the text), `kind`, `from`/`to` (due time), `limit` (50, max 200); with `now` |
-| `POST /reminders` | JSON `text`, `due` (`2026-10-23 15:00` in `TZ`, or with an offset; a bare date is 09:00; not in the past), `repeat` (`day`, `week`, `month`, `year`), `every` (1), `days` (weekly: `mo,th`), `until` (a date), `kind` (`reminder`: sent to the user; `check`: for the assistant itself, which the scheduler wakes with it), `source` |
-| `PATCH /reminders/<id>` | `text`, `due` (on a repeating reminder this moves the whole series), `repeat` (`none` stops it after this occurrence), `every`, `days` (a new repeat on weekdays also moves this occurrence to the first of them), `until`; `409` if it fired meanwhile |
-| `POST /reminders/<id>/snooze` | JSON `minutes` (60) or `until`: moves this occurrence only; a fired reminder becomes pending again |
-| `POST /reminders/<id>/done` | marks it done; on a pending repeating reminder this skips the occurrence and returns the `next` |
-| `DELETE /reminders/<id>` | cancels it and the rest of its series |
-| `POST /reminders/due` | for a scheduler: marks every due pending reminder fired and returns them (`late` when more than 5 minutes overdue, `next` for repeating ones); concurrent calls never return the same reminder |
-| `POST /transcribe` | audio body, passed to `TRANSCRIBER_URL` |
 | `GET /mail` | Mail, newest first: `account` (`icloud` by default, or a name from `GMAIL_ACCOUNTS`), `q` (words in the headers and body; Gmail search syntax for a Gmail account), `sender`, `subject`, `unread=true`, `from`/`to` (as for `/messages`), `mailbox` (iCloud `INBOX` or Gmail's All Mail by default, which must be shown in IMAP; a wrong name lists the others), `limit` (20, max 50); each with an `id` like `INBOX:4521` (Gmail: `<account>#<message id>`, the same in every label) and a snippet |
 | `GET /mail/read` | `ids` (up to 10, comma-separated): the messages in full (body text, recipients, attachment names). Mailboxes are opened read only: nothing is marked as seen |
 | `GET /calendar/events` | Events of a period in iCloud's and Radicale's calendars (one list of names; with a server down, the others' events and a note that names may change when it is back; creating an event needs every server), repeating ones expanded into occurrences: `from` (today), `to` (a week later; a bare date includes that day; at most 366 days), `q` (words in the title, place or notes), `calendar` (a name); with the calendars' names |
@@ -84,7 +63,6 @@ ALTER ROLE assistant_api SET statement_timeout = '15s';
 | `PATCH /todos/<id>` | `title`, `due`, `notes`, `repeat` to change (empty ones are kept; `-` removes a due time, notes or repeat); a new due time reopens a completed to-do |
 | `POST /todos/<id>/done` | completes it; a repeating one moves on to the first occurrence due after now and after the current one, and stays open |
 | `DELETE /todos/<id>` | deletes it, a repeating one with every occurrence |
-| `/openrouter/v1/<path>` | forwarded to OpenRouter with the caller's own `Authorization` (its OpenRouter key), for an agent whose model node can't set prompt caching: on `anthropic/` models the system prompt but its last paragraph (put what changes, like the current time, there) is cached for an hour and the conversation up to the latest user message for 5 minutes, and Amazon Bedrock is preferred (Vertex's global endpoint mostly misses the cache). Each call's cached and written tokens are logged |
 | `GET /health` | `200` while the database answers |
 
 Stubs (group events) and undecryptable messages are left out of the message endpoints.
@@ -93,18 +71,11 @@ The mail and calendar answers carry `text`, the same as lines for a prompt (an a
 
 To-dos are written the way an iPhone's Reminders app rings for them: `DTSTART` and `DUE` with `TZID` set to `TZ`, and an alarm (`ACTION:DISPLAY`, `TRIGGER:PT0S`) at that moment. A new due time moves `DTSTART` along at the same distance and the item's alarms with it (one is added when it has none); a new title only renames it and its alarms' text. Completing a repeating to-do moves `DTSTART` and `DUE` to the next occurrence in their own zone; repeats go from `DAILY` to `YEARLY`. Phones fetch CalDAV changes on their own schedule, so a to-do due within minutes may ring late. Every write sends the item's ETag (`If-Match`, `If-None-Match: *` to create), so a change made on a phone meanwhile answers `409` instead of being overwritten. Radicale is reached with `RADICALE_USER` on the collections under `RADICALE_HOME`, which may be another user's that it is allowed to act on; the API never creates, renames or deletes a collection. Without discovery, since Radicale checks the password (bcrypt) on every request: the collections are listed once every ten minutes.
 
-Topics are paths of 1-4 lowercase words (`people/giulia`, `places/restaurants/bergamo`); accents and spaces are folded, and the first word must be one of `NOTE_TOPIC_ROOTS`. A topic has at most one summary (kind `summary`), written with `PUT /notes/summaries`. A consolidation job (an agent run on a schedule) is expected to file notes under topics, merge duplicates and keep the summaries current, and to record each run so the next one only starts when notes changed.
-
-A repeating reminder keeps its wall-clock time across daylight saving changes and counts from its first occurrence, so a monthly one on the 31st falls on the last day of shorter months and comes back to the 31st. When an occurrence fires, the next one is created at once, after the current time: if nothing claimed reminders for a while, the overdue occurrence fires once (late) and the ones missed meanwhile are skipped.
-
 | Variable | Default | |
 |---|---|---|
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | | Postgres, as the login above |
-| `API_TOKEN` | | Legacy full-access bearer token, 16 bytes or more (required) |
-| `API_SCOPED_TOKENS` | `{}` | Named token/scope credentials as JSON (each token at least 16 bytes, no whitespace) |
+| `API_SCOPED_TOKENS` | | Named token/scope credentials as JSON, at least one (each token at least 16 bytes, no whitespace; required) |
 | `TZ` | `UTC` | Time zone for dates in and out |
-| `TRANSCRIBER_URL` | | Speech-to-text service behind `POST /transcribe` |
-| `NOTE_TOPIC_ROOTS` | `people,places,preferences,home,work,health,projects,ideas,reading,travel,other` | Allowed first level of a note's topic |
 | `ICLOUD_USER`, `ICLOUD_PASSWORD` | | iCloud Mail and Calendar: the Apple ID and an app-specific password; empty disables them |
 | `GMAIL_ACCOUNTS` | `{}` | Gmail accounts read over IMAP, as JSON: `{"<name>": {"user": "<address>", "password": "<app password>"}}`; names are lowercase letters, digits and `-`. Each account needs 2-Step Verification and an [app password](https://support.google.com/accounts/answer/185833) |
 | `ICLOUD_CALENDAR` | | Calendar for new events when the request names none (default: the first) |

@@ -2,30 +2,26 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createAuthorizer, SCOPES } from './auth.js';
 
-const legacy = 'legacy-test-token-0123456789';
+const retired = 'legacy-test-token-0123456789';
 const reader = 'reader-test-token-0123456789';
 const scoped = JSON.stringify({ hermes: { token: reader, scopes: ['archive.read'] } });
 
-test('legacy credential remains compatible with every current scope', () => {
-  const authorize = createAuthorizer(legacy);
-  assert.deepEqual([...authorize('Bearer ' + legacy)!.scopes], [...SCOPES]);
-  assert.ok(authorize(legacy)?.scopes.has('calendar.delete'));
+test('scoped credentials are the only credential source', () => {
+  for (const value of ['', '  ', '{}']) assert.throws(() => createAuthorizer(value), /API_SCOPED_TOKENS/);
 });
 
-test('archive reader cannot read personal notes/mail or write/claim anything', () => {
-  const authorize = createAuthorizer(legacy, scoped);
+test('archive reader cannot read mail or write anything', () => {
+  const authorize = createAuthorizer(scoped);
   assert.deepEqual([...authorize('bearer ' + reader)!.scopes], ['archive.read']);
   for (const scope of SCOPES.filter((s) => s !== 'archive.read')) {
     assert.equal(authorize('Bearer ' + reader)?.scopes.has(scope), false, scope);
   }
-  assert.ok(authorize('Bearer ' + legacy)?.scopes.has('reminders.claim'));
   assert.equal(authorize('Bearer ' + reader)?.name, 'hermes');
-  assert.equal(authorize('Bearer ' + legacy)?.name, 'legacy');
 });
 
 test('separate callers receive only their own explicit scopes', () => {
   const calendar = 'calendar-test-token-0123456789';
-  const authorize = createAuthorizer(legacy, JSON.stringify({
+  const authorize = createAuthorizer(JSON.stringify({
     hermes: { token: reader, scopes: ['archive.read'] },
     calendar: { token: calendar, scopes: ['calendar.read', 'calendar.create'] },
   }));
@@ -35,34 +31,36 @@ test('separate callers receive only their own explicit scopes', () => {
   assert.equal(authorize('Bearer ' + reader)?.scopes.has('calendar.read'), false);
 });
 
-test('absent, wrong and partial credentials never authenticate', () => {
-  const authorize = createAuthorizer(legacy, scoped);
-  for (const header of [undefined, '', 'Bearer ', 'Bearer wrong', 'Basic ' + reader, 'Bearer ' + reader.slice(1)]) {
+test('absent, wrong, partial and retired credentials never authenticate', () => {
+  const authorize = createAuthorizer(scoped);
+  for (const header of [undefined, '', 'Bearer ', 'Bearer wrong', 'Basic ' + reader, 'Bearer ' + reader.slice(1), 'Bearer ' + retired]) {
     assert.equal(authorize(header), undefined);
   }
 });
 
 test('misconfigured permissions fail closed without exposing credentials', () => {
-  assert.throws(() => createAuthorizer('short'), /API_TOKEN/);
   for (const value of ['{', 'null', '[]', '"string"', '{"bad":null}']) {
-    assert.throws(() => createAuthorizer(legacy, value));
+    assert.throws(() => createAuthorizer(value));
   }
   for (const credential of [
     { token: 'short', scopes: ['archive.read'] },
     { token: reader, scopes: [] },
     { token: reader, scopes: ['*'] },
     { token: reader, scopes: ['archive.reed'] },
+    // scopes of the removed notes, reminders and speech-to-text routes
+    { token: reader, scopes: ['notes.read'] },
+    { token: reader, scopes: ['reminders.claim'] },
+    { token: reader, scopes: ['audio.transcribe'] },
     { token: reader, scopes: 'archive.read' },
     { token: reader, scope: ['archive.read'] },
     { token: reader + ' ', scopes: ['archive.read'] },
-    { token: legacy, scopes: ['archive.read'] },
   ]) {
-    assert.throws(() => createAuthorizer(legacy, JSON.stringify({ hermes: credential })), (error: Error) => {
-      assert.ok(!error.message.includes(reader) && !error.message.includes(legacy));
+    assert.throws(() => createAuthorizer(JSON.stringify({ hermes: credential })), (error: Error) => {
+      assert.ok(!error.message.includes(reader));
       return true;
     });
   }
-  assert.throws(() => createAuthorizer(legacy, JSON.stringify({
+  assert.throws(() => createAuthorizer(JSON.stringify({
     first: { token: reader, scopes: ['archive.read'] }, second: { token: reader, scopes: ['calendar.delete'] },
   })), /distinct/);
 });

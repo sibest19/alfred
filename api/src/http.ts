@@ -6,7 +6,6 @@ import { config } from './config.js';
 
 export const tz = config.timezone;
 export const MAX_JSON = 1024 * 1024;
-export const MAX_AUDIO = 25 * 1024 * 1024;
 
 export class HttpError extends Error {
   constructor(
@@ -88,10 +87,4 @@ export async function readJson(req: IncomingMessage): Promise<Record<string, unk
 }
 
 export const text = (v: unknown) => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim());
-
-/** Tags as a JSON array or a comma-separated string; lowercase, unique. */
-export function tags(v: unknown): string[] {
-  const list = Array.isArray(v) ? v.map(text) : text(v).split(',');
-  return [...new Set(list.map((t) => t.trim().toLowerCase()).filter(Boolean))];
-}
 
