@@ -52,3 +52,41 @@ assert resolved == {
     "adopt_logins": False, "free_only": True, "auto_titles": True, "title_upgrade": False,
 }, resolved
 print("ok: example limits")'
+# Scheduled jobs (README.md): the ingest alert script through Hermes's own job runner, against a local stand-in for
+# ingest's /health; and a cron toolset list naming only the MCP server leaves scheduled runs only its tools.
+run -e HERMES_HOME=/opt/data -v "$(cd "$(dirname "$0")" && pwd)/scripts/ingest_health.py:/check/ingest_health.py:ro" \
+  --entrypoint /opt/hermes/.venv/bin/python "$image" -c '
+import http.server, json, os, shutil, threading
+health = {}
+class Ingest(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(health["code"])
+        self.end_headers()
+        self.wfile.write(json.dumps({"connection": health["connection"]}).encode())
+    def log_message(self, *args):
+        pass
+server = http.server.HTTPServer(("127.0.0.1", 0), Ingest)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+os.environ["INGEST_HEALTH_URL"] = "http://127.0.0.1:%d/health" % server.server_port
+os.makedirs("/opt/data/scripts")
+shutil.copy("/check/ingest_health.py", "/opt/data/scripts/ingest_health.py")
+# shortcut: pinned Hermes internals, revisit when upgrading the Hermes image.
+from cron.jobs import create_job
+from cron.scheduler import run_job
+from cron.scheduler import _resolve_cron_enabled_toolsets
+job = create_job(None, "every 5m", name="ingest-down", script="ingest_health.py", no_agent=True, deliver="local")
+said = []
+for code, connection in ((200, "open"), (503, "close"), (503, "close"), (200, "open")):
+    health.update(code=code, connection=connection)
+    ok, _, reply, error = run_job(job)
+    assert ok and not error, (ok, error)
+    said.append(reply)
+assert said[0] == said[2] == "[SILENT]", said
+assert said[1].startswith("WhatsApp archive is down: ingest reports close."), said
+assert said[3].startswith("WhatsApp archive is back"), said
+# In the data volume, not a tmpfs: a restart must not forget an outage
+assert open("/opt/data/cron/ingest_health.state").read() == "up"
+cron = _resolve_cron_enabled_toolsets({}, {"mcp_servers": {"alfred": {"url": "http://mcp:8080/mcp", "trust": "untrusted"}},
+                                           "platform_toolsets": {"cron": ["alfred"]}})
+assert cron == ["alfred"], cron
+print("ok: scheduled jobs")'

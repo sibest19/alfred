@@ -60,3 +60,52 @@ Hermes still has no hard wall-clock limit on a run (`mcp/GAPS.md`, HERMES-01): `
 model to wrap up. In a chat, `manual` approvals hold a run on each flagged command until the owner answers or
 `approvals.timeout` (300 s by default) denies it; scheduled, API-server and webhook runs deny flagged commands
 whatever the mode (`cron_mode`, `unattended_mode`).
+
+## Scheduled jobs
+
+Hermes's gateway runs scheduled jobs and delivers their results to a chat. They live in Hermes's data volume
+(`cron/jobs.json`) and are created with `hermes cron create`. Two examples:
+
+**Morning briefing**: one model run a day, delivered to the owner's chat.
+
+```sh
+hermes cron create "30 7 * * *" "Morning briefing for the owner. Today's events (calendar_events), to-dos due \
+today or overdue (reminders_list), mail since yesterday morning worth attention (mail_search with from), and \
+WhatsApp messages that may need a reply: whatsapp_search with after_id set to the latest last_whatsapp_id line \
+anywhere in your previous run's output, or from yesterday morning if there is none. Be brief; skip empty sections. End with \
+the line: last_whatsapp_id: <the highest message id you saw>" \
+  --name briefing --deliver telegram:<chat id> --continuity --timezone <IANA zone> --no-wrap-response
+```
+
+`--continuity` gives each run the previous run's output (a failed run passes on its error report, with the run
+before it inside), so the last line carries the WhatsApp cursor from one day to the next and shows in the message.
+`--no-wrap-response` delivers the text alone, without Hermes's job header and footer. Due to-dos need no job of their own: the to-dos Alfred creates carry an
+alarm at their due time, which the phone shows.
+
+**WhatsApp archive down**: no model involved. [`scripts/ingest_health.py`](scripts/ingest_health.py) reads
+ingest's `/health` and prints a line only when the connection is lost or comes back; Hermes delivers what it prints.
+Copy it into the data volume's `scripts/` and:
+
+```sh
+hermes cron create "every 5m" --name ingest-down --no-agent --script ingest_health.py --deliver telegram:<chat id> \
+  --no-wrap-response
+```
+
+Hermes reaches ingest at `INGEST_HEALTH_URL` (default `http://ingest:8080/health`): give the two a dedicated internal
+network. Ingest's port serves only `/health` and `/metrics` (connection state and counters).
+
+Scheduled runs get every tool Hermes has (terminal, web, delegation, ...) unless their list is set. Limit them to the
+MCP server, by the name of its `mcp_servers` entry. This covers jobs without a toolset list of their own; a job the
+agent creates from a chat (the `cronjob` toolset) can carry one that wins, so leave `cronjob` off the chat platforms
+or cap every run with `agent.disabled_toolsets`:
+
+```yaml
+platform_toolsets:
+  cron: [alfred]
+```
+
+Writes are refused unless approved earlier: `approvals.cron_mode` (`deny` by default) refuses flagged commands, and
+a write tool on a `trust: untrusted` MCP server needs an approval nobody is there to give, except for a tool approved
+"always" in a chat (kept in `command_allowlist`, which scheduled runs honour too) or with `approvals.mode: off`
+([MCP-05](../mcp/GAPS.md)). Answer write prompts with "once" or "session" to keep scheduled runs read-only. [`check.sh`](check.sh) runs the ingest script through Hermes's job runner against a stand-in
+`/health`, and checks that the scheduler resolves such a toolset list to the MCP server's tools only.
