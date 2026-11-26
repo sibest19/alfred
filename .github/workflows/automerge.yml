@@ -44,18 +44,19 @@ jobs:
 
           # Checked again, renamed files under both names
           files=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
-          if grep -qE '^(\.github/|opencode\.json$|smoke/|db/migrations/)' <<<"$files"; then
-            echo 'touches CI, the agent, the smoke tests or the migrations'
+          # sandbox/ is the boundary around Alfred's shell: its sshd and isolation are changed by hand only
+          if grep -qE '^(\.github/|opencode\.json$|smoke/|db/migrations/|sandbox/)' <<<"$files"; then
+            echo 'touches CI, the agent, the smoke tests, the migrations or the sandbox'
             exit 0
           fi
 
-          # Every check of CI (the five image builds start after build and smoke) and CodeQL must show up on this
+          # Every check of CI (the six image builds start after build and smoke) and CodeQL must show up on this
           # commit, then all must pass: not failed, cancelled or skipped
           registered() {
             local names
             names=$(gh pr checks "$PR" --json name --jq '.[].name') || return 1
             for check in build smoke transcriber CodeQL; do grep -qx "$check" <<<"$names" || return 1; done
-            [[ $(grep -c '^image (' <<<"$names") -eq 5 ]]
+            [[ $(grep -c '^image (' <<<"$names") -eq 6 ]]
           }
           for _ in $(seq 120); do registered && break; sleep 15; done
           if ! registered; then echo 'CI or CodeQL never fully started on this commit'; exit 0; fi

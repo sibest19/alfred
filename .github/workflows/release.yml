@@ -41,9 +41,10 @@ jobs:
             [api]="^(api|db)/|$node"
             [mcp]="^mcp/|$node"
             [hermes]='^hermes/'
+            [sandbox]='^sandbox/'
             [transcriber]='^transcriber/'
           )
-          for service in ingest api mcp hermes transcriber; do
+          for service in ingest api mcp hermes sandbox transcriber; do
             last=$(git tag -l "$service/v*.*.*" --sort=-v:refname | head -1)
             # shortcut: services without a tag of their own continue from the last shared vX.Y.Z (v0.9.20);
             # remove this fallback once every service has a <service>/v* tag
