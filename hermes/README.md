@@ -2,7 +2,7 @@
 
 Alfred's agent: [Hermes Agent](https://github.com/NousResearch/hermes-agent), pinned by digest, with the Honcho memory
 provider and two changes made here (see [`Dockerfile`](Dockerfile)): it starts the CLI directly, so it runs
-as any UID on a read-only root with `HERMES_HOME` (`/opt/data`) as its only writable mount, and it never copies files
+as any UID on a read-only root (the SSH sandbox backend also needs that UID in `/etc/passwd`: sandbox/README.md) with `HERMES_HOME` (`/opt/data`) as its only writable mount, and it never copies files
 back from a remote terminal backend ([sandbox](../sandbox/README.md)). Run it with an init process. [`check.sh`](check.sh)
 checks the built image offline.
 
