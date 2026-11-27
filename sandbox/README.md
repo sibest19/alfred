@@ -92,7 +92,12 @@ terminal:
   credential_files: []
 ```
 
-`hermes dump` shows the backend in effect. Then turn on the `terminal`, `file` and `code_execution` toolsets for
+`hermes dump` shows the backend in effect.
+
+OpenSSH's client refuses a user it can't look up ("No user exists for uid …"). The Hermes image lists only its own
+user (UID 10000); if Hermes runs as another UID, mount a copy of the image's `/etc/passwd` with a line for that UID
+(read-only, readable by it) over `/etc/passwd`, and generate the key as that UID. Mount the public key with a plain
+bind mount: Compose `configs` are not mounted into a read-only service. Then turn on the `terminal`, `file` and `code_execution` toolsets for
 Telegram (`hermes tools`). Leave them off `platform_toolsets.api_server`: callers of the
 [inbox MCP](../mcp/README.md#incoming-requests-to-alfred) should not get a shell.
 
