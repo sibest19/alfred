@@ -12,7 +12,7 @@
     "test": "pnpm -r --if-present run test"
   },
   "devDependencies": {
-    "@types/node": "26.6.7",
+    "@types/node": "26.6.10",
     "typescript": "7.0.2"
   },
   "packageManager": "pnpm@12.23.0"
