@@ -186,8 +186,8 @@ importers:
   .:
     devDependencies:
       '@types/node':
-        specifier: 26.6.7
-        version: 26.6.7
+        specifier: 26.6.10
+        version: 26.6.10
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -236,7 +236,7 @@ importers:
         version: 0.16.1
       baileys:
         specifier: 7.0.0-rc14
-        version: 7.0.0-rc14(sharp@0.35.5(@types/node@26.6.7))
+        version: 7.0.0-rc14(sharp@0.35.5(@types/node@26.6.10))
       pino:
         specifier: 10.4.0
         version: 10.4.0
@@ -528,8 +528,8 @@ packages:
   '@types/mailparser@3.9.0':
     resolution: {integrity: sha512-YnhrRiRVDiEAphFvd72hKa1n8y2b9Q3rgSQiONZQyhQz67h5g4MZHNApET3XWXVEFdInWtHqDHKEwnyjxU3QVw==}
 
-  '@types/node@26.6.7':
-    resolution: {integrity: sha512-tovuRfrUILu6v46bMG+BgXxMvsqPBx2WO2as8Rpln+JTff1dbexMtAM4KFTejmL0axsnSWViCW7MecUQpLuBRA==}
+  '@types/node@26.6.10':
+    resolution: {integrity: sha512-WJuPHoGB8WNQuTksNF7SOQpnH02PXeDYz4iueWbBT6/hTWnShY5F3T/hoJA3fY9+uYReDZ7pyTKKx83jQa7aGg==}
 
   '@types/qrcode-terminal@0.12.2':
     resolution: {integrity: sha512-v+RcIEJ+Uhd6ygSQ0u5YYY7ZM+la7GgPbs0V/7l/kFs2uO4S8BcIUEMoP7za4DNIqNnUD5npf0A/7kBhrCKG5Q==}
@@ -1236,10 +1236,10 @@ snapshots:
 
   '@types/mailparser@3.9.0':
     dependencies:
-      '@types/node': 26.6.7
+      '@types/node': 26.6.10
       iconv-lite: 0.6.3
 
-  '@types/node@26.6.7':
+  '@types/node@26.6.10':
     dependencies:
       undici-types: 8.9.0
 
@@ -1317,7 +1317,7 @@ snapshots:
 
   atomic-sleep@1.0.0: {}
 
-  baileys@7.0.0-rc14(sharp@0.35.5(@types/node@26.6.7)):
+  baileys@7.0.0-rc14(sharp@0.35.5(@types/node@26.6.10)):
     dependencies:
       '@cacheable/node-cache': 1.7.6
       '@hapi/boom': 9.1.4
@@ -1328,7 +1328,7 @@ snapshots:
       p-queue: 9.3.5
       pino: 9.14.0
       protobufjs: 7.6.6
-      sharp: 0.35.5(@types/node@26.6.7)
+      sharp: 0.35.5(@types/node@26.6.10)
       whatsapp-rust-bridge: 0.5.4
       ws: 8.22.1
     transitivePeerDependencies:
@@ -1590,7 +1590,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.2
-      '@types/node': 26.6.7
+      '@types/node': 26.6.10
       long: 5.3.2
 
   punycode.js@2.3.1: {}
@@ -1619,7 +1619,7 @@ snapshots:
 
   semver@7.8.6: {}
 
-  sharp@0.35.5(@types/node@26.6.7):
+  sharp@0.35.5(@types/node@26.6.10):
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
@@ -1650,7 +1650,7 @@ snapshots:
       '@img/sharp-win32-arm64': 0.35.5
       '@img/sharp-win32-ia32': 0.35.5
       '@img/sharp-win32-x64': 0.35.5
-      '@types/node': 26.6.7
+      '@types/node': 26.6.10
 
   smart-buffer@4.2.0: {}
 
